@@ -86,6 +86,8 @@ void OniriqueChannelStripProcessor::prepareToPlay (double sampleRate, int sample
 
     moduleChain.prepare (spec);
 
+    license.refresh();
+
     // Safe ici (prepareToPlay n'est jamais appele depuis le thread audio) :
     // contrairement a parameterChanged(), pas besoin de passer par
     // l'AsyncUpdater.
@@ -125,6 +127,7 @@ void OniriqueChannelStripProcessor::processBlock (AudioBuffer<float>& buffer, Mi
 
     dsp::AudioBlock<float> block (buffer);
     moduleChain.process (block);
+    license.process (buffer, getSampleRate(), isNonRealtime());
 
     outputPeakDb.store (peakOf());
 }

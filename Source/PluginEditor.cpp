@@ -211,6 +211,9 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
     logo = juce::ImageCache::getFromMemory (BinaryData::sigil_png, BinaryData::sigil_pngSize);
     shownChain = chainText();
 
+    licenseOverlay = std::make_unique<onirique::license::Overlay> ("ONIRIQUE CHANNEL STRIP", proc.license);
+    addAndMakeVisible (*licenseOverlay);
+
     setOpaque (true);
     constrainer.setFixedAspectRatio (refCanvasW / refCanvasH);
     constrainer.setSizeLimits (500, 320, 2400, 1536);
@@ -317,6 +320,7 @@ void OniriqueChannelStripEditor::resized()
     place (*f76Panel, 616.0f, 264.0f, 374.0f, 160.0f);
     place (*noiseGatePanel, 10.0f, 500.0f, 210.0f, 132.0f);
     place (*eqPanel, 228.0f, 432.0f, 762.0f, 200.0f);
+    licenseOverlay->fit (getLocalBounds(), s, { 510, 3, 248, 24 });
 
     // ---- en-tete
     logoRect = { 12.0f * s, 6.0f * s, 38.0f * s * 985.0f / 895.0f, 38.0f * s };

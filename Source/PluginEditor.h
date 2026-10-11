@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include "License/LicenseOverlay.h"
 #include "PluginProcessor.h"
 #include "GUI/OniriqueLookAndFeel.h"
 #include "GUI/ModuleOrderManager.h"
@@ -65,6 +66,8 @@ private:
     int frame = 0;
 
     juce::ComponentBoundsConstrainer constrainer;
+
+    std::unique_ptr<onirique::license::Overlay> licenseOverlay;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OniriqueChannelStripEditor)
 };

@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_events/juce_events.h>
+#include "License/LicenseGuard.h"
 #include "Parameters.h"
 #include "Presets.h"
 #include "DSP/ModuleChain.h"
@@ -55,6 +56,9 @@ public:
         processBlock() -- alimente les meters IN/OUT de la barre du haut. */
     float getInputPeakDb() const noexcept { return inputPeakDb.load(); }
     float getOutputPeakDb() const noexcept { return outputPeakDb.load(); }
+
+    /** Licence ONIRIQUE (achete, essai, demo) : voir License/LicenseGuard.h. */
+    onirique::license::Guard license { "based" };
 
 private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;

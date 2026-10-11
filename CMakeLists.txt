@@ -108,6 +108,10 @@ if(MSVC)
     target_compile_options(OniriqueChannelStrip PRIVATE /utf-8)
 endif()
 
+# Licence ONIRIQUE : verification du fichier ecrit par ONIRIQUE CENTRAL, pastille et page d'activation.
+include(License/OniriqueLicense.cmake)
+onirique_add_license(OniriqueChannelStrip)
+
 target_link_libraries(OniriqueChannelStrip
     PRIVATE
         OniriqueChannelStripData
