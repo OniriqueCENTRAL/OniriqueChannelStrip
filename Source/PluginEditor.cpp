@@ -320,7 +320,9 @@ void OniriqueChannelStripEditor::resized()
     place (*f76Panel, 616.0f, 264.0f, 374.0f, 160.0f);
     place (*noiseGatePanel, 10.0f, 500.0f, 210.0f, 132.0f);
     place (*eqPanel, 228.0f, 432.0f, 762.0f, 200.0f);
-    licenseOverlay->fit (getLocalBounds(), s, { 510, 3, 248, 24 });
+    // La pastille de licence : dans l'en-tête, contre les vumètres IN / OUT, centrée sur eux ; sa place suit son texte.
+    const int badge = licenseOverlay->pillWidth();
+    licenseOverlay->fit (getLocalBounds(), s, { 786 - badge, 11, badge, 26 });
 
     // ---- en-tete
     logoRect = { 12.0f * s, 6.0f * s, 38.0f * s * 985.0f / 895.0f, 38.0f * s };

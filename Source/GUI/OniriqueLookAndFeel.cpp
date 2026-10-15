@@ -1,4 +1,5 @@
 #include "OniriqueLookAndFeel.h"
+#include "OniriqueKnob.h"
 #include "UIStyle.h"
 #include <cmath>
 
@@ -44,56 +45,9 @@ void OniriqueLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
     const float glow = (float) props.getWithDefault ("glow", 0.0f);
     const bool bipolar = (bool) props.getWithDefault ("bipolar", false);
 
-    // ---- arc de valeur : piste discrete + arc braise lumineux (depuis le centre si bipolaire)
-    const float arcR = R * 0.86f, arcW = std::max (2.0f, 9.0f * u);
-    juce::Path track;
-    track.addCentredArc (c.x, c.y, arcR, arcR, 0.0f, a0, a1, true);
-    g.setColour (juce::Colours::white.withAlpha (0.07f));
-    g.strokePath (track, juce::PathStrokeType (arcW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    const float aPos = a0 + shown * (a1 - a0);
-    const float aFrom = bipolar ? 0.5f * (a0 + a1) : a0;
-    if (std::abs (aPos - aFrom) > 0.005f)
-    {
-        juce::Path val;
-        val.addCentredArc (c.x, c.y, arcR, arcR, 0.0f, std::min (aFrom, aPos), std::max (aFrom, aPos), true);
-        strokeGlow (g, val, ember, arcW, 0.55f + 0.45f * glow);
-        g.setGradientFill (juce::ColourGradient (bone, onCircle (c, arcR, aFrom), ember, onCircle (c, arcR, aPos), false));
-        g.strokePath (val, juce::PathStrokeType (arcW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-
-    // ---- corps : sphere sombre teintee sang, reflet en haut a gauche
-    const float bodyR = R * 0.66f;
-    const auto body = juce::Rectangle<float> (bodyR * 2.0f, bodyR * 2.0f).withCentre (c);
-    juce::Path bodyPath;
-    bodyPath.addEllipse (body);
-    juce::DropShadow (juce::Colours::black.withAlpha (0.65f), juce::jmax (1, juce::roundToInt (16.0f * u)), { 0, juce::roundToInt (7.0f * u) })
-        .drawForPath (g, bodyPath);
-
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3d282b), c.x - bodyR * 0.45f, c.y - bodyR * 0.55f,
-                                             juce::Colour (0xff0e0708), c.x + bodyR * 0.75f, c.y + bodyR * 0.95f, true));
-    g.fillEllipse (body);
-    g.setColour (night);
-    g.drawEllipse (body, std::max (1.0f, 1.6f * u));
-    g.setColour (juce::Colours::white.withAlpha (0.09f + 0.06f * glow));
-    g.drawEllipse (body.reduced (1.4f * u), std::max (0.8f, 1.1f * u));
-
-    const auto face = body.reduced (bodyR * 0.16f);
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2a1a1d), face.getX(), face.getY(),
-                                             juce::Colour (0xff120a0b), face.getRight(), face.getBottom(), false));
-    g.fillEllipse (face);
-    g.setColour (juce::Colours::white.withAlpha (0.04f));
-    g.drawEllipse (face, std::max (0.8f, 1.0f * u));
-
-    // ---- repere + point lumineux en bout
-    juce::Path p;
-    p.startNewSubPath (onCircle (c, bodyR * 0.30f, aPos));
-    p.lineTo (onCircle (c, bodyR * 0.78f, aPos));
-    g.setColour (mist);
-    g.strokePath (p, juce::PathStrokeType (std::max (1.6f, 5.0f * u), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    const auto tip = onCircle (c, bodyR * 0.78f, aPos);
-    g.setColour (ember.withAlpha (0.35f * glow));
-    g.fillEllipse (juce::Rectangle<float> (16.0f * u, 16.0f * u).withCentre (tip));
+    // ---- le potard ONIRIQUE, le même dans tous les plugins de la marque (OniriqueKnob.h) : graduations allumées
+    //      jusqu'à la valeur (depuis le centre si bipolaire), corps biseauté, aiguille à l'étoile
+    onirique::ui::drawKnob (g, b, shown, a0, a1, ember, bipolar, s.isMouseOverOrDragging() || glow > 0.5f);
 
     // ---- bornes de l'echelle (seulement si le potard est assez grand pour rester lisible)
     const auto minL = props["minLabel"].toString(), maxL = props["maxLabel"].toString();
