@@ -35,6 +35,7 @@ private:
     juce::String chainText() const;
 
     OniriqueChannelStripProcessor& proc;
+    bool sizeRestored = false;   // les redimensionnements de la construction ne sont pas gardés
 
     onirique::ui::OniriqueLookAndFeel lookAndFeel;
     onirique::ui::ModuleOrderManager orderManager;

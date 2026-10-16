@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "GUI/OniriqueWindowSize.h"
 #include "GUI/ParamControls.h"
 #include "GUI/TransferCurveDisplay.h"
 #include "DSP/SSLChannelModule.h"
@@ -219,7 +220,10 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
     constrainer.setSizeLimits (500, 320, 2400, 1536);
     setConstrainer (&constrainer);
     setResizable (true, true);
-    setSize (1400, 896);
+    // taille d'ouverture : la règle commune des plugins ONIRIQUE (GUI/OniriqueWindowSize.h)
+    const int w = onirique::window::openingSize (proc.apvts.state, "ONIRIQUE CHANNEL STRIP", { 1400, 896 }, { 500, 320 }, { 2400, 1536 }).x;
+    setSize (w, juce::roundToInt ((float) w * refCanvasH / refCanvasW));
+    sizeRestored = true;
 
     startTimerHz (60);
 }
@@ -227,6 +231,7 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
 OniriqueChannelStripEditor::~OniriqueChannelStripEditor()
 {
     stopTimer();
+    onirique::window::rememberOnThisComputer ("ONIRIQUE CHANNEL STRIP", getWidth(), getHeight());
     setLookAndFeel (nullptr);
 }
 
@@ -302,6 +307,7 @@ void OniriqueChannelStripEditor::timerCallback()
 //==============================================================================
 void OniriqueChannelStripEditor::resized()
 {
+    if (sizeRestored) onirique::window::remember (proc.apvts.state, getWidth(), getHeight());   // taille gardée avec le projet
     const float s = scale();
     const float W = (float) getWidth();
 
