@@ -214,11 +214,6 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
 
     licenseOverlay = std::make_unique<onirique::license::Overlay> ("ONIRIQUE CHANNEL STRIP", proc.license);
     addAndMakeVisible (*licenseOverlay);
-   #if ONIRIQUE_UI_TEST
-    // essais locaux uniquement (jamais dans les versions publiees) : captures sans la page d'activation
-    if (juce::SystemStats::getEnvironmentVariable ("ONIRIQUE_UI_TEST", {}).contains ("nolicense"))
-        licenseOverlay->setVisible (false);
-   #endif
 
     setOpaque (true);
     constrainer.setFixedAspectRatio (refCanvasW / refCanvasH);
@@ -415,10 +410,13 @@ void OniriqueChannelStripEditor::paintHeader (juce::Graphics& g)
         const float w2 = textWidth (f2, "CHANNEL STRIP") + 2.0f;
         const float y = 6.0f * s, hh = 24.0f * s;
         g.setFont (f1);
+        g.setColour (ember.withAlpha (0.35f));
+        g.drawText ("ONIRIQUE", juce::Rectangle<float> (x, y + 0.7f * s, w1, hh), juce::Justification::centredLeft, false);
         g.setColour (mist);
         g.drawText ("ONIRIQUE", juce::Rectangle<float> (x, y, w1, hh), juce::Justification::centredLeft, false);
-        g.setColour (ember);
-        g.drawText ("CHANNEL STRIP", juce::Rectangle<float> (x + w1 + 7.0f * s, y, w2 + 30.0f * s, hh), juce::Justification::centredLeft, false);
+        g.setFont (f2);
+        g.setColour (haze);
+        g.drawText ("CHANNEL STRIP", juce::Rectangle<float> (x + w1 + 7.0f * s, y, w2, hh), juce::Justification::centredLeft, false);
 
         g.setColour (haze.withAlpha (0.75f));
         g.setFont (fitFont (Face::mono, 7.0f * s, chainRect.getWidth(), shownChain, false, 0.06f));
@@ -463,21 +461,13 @@ void OniriqueChannelStripEditor::renderBackground()
     background = juce::Image (juce::Image::RGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), false);
     juce::Graphics g (background);
 
-    // ---- fond (DA PRO SERIES) : noir profond, lueurs rouges tres discretes, grain fin
+    // ---- fond : sang -> nuit, halo braise en haut a droite
     g.fillAll (night);
-    g.setGradientFill (juce::ColourGradient (blood.withAlpha (0.55f), W * 0.22f, H * 0.45f, night.withAlpha (0.0f), W * 0.22f + W * 0.6f, H * 0.45f, true));
+    g.setGradientFill (juce::ColourGradient (blood.withAlpha (0.85f), 0.0f, 0.0f, night.withAlpha (0.0f), 0.0f, H * 0.62f, false));
     g.fillRect (getLocalBounds());
-    g.setGradientFill (juce::ColourGradient (blood.withAlpha (0.22f), W * 0.92f, H * 1.05f, night.withAlpha (0.0f), W * 0.92f - W * 0.45f, H * 1.05f, true));
+    g.setGradientFill (juce::ColourGradient (ember.withAlpha (0.20f), W * 0.74f, -27.0f * s,
+                                             ember.withAlpha (0.0f), W * 0.74f + W * 0.42f, -27.0f * s, true));
     g.fillRect (getLocalBounds());
-    {
-        juce::Random rnd (21);
-        for (int i = 0; i < 120; ++i)
-        {
-            const float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H, d = (0.5f + 1.2f * rnd.nextFloat() * rnd.nextFloat()) * s;
-            g.setColour (mist.withAlpha (0.03f + 0.07f * rnd.nextFloat()));
-            g.fillEllipse (x, y, d, d);
-        }
-    }
 
     // ---- ombres portees des cartes (elles debordent des panneaux)
     for (auto* c : std::initializer_list<juce::Component*> { sslPanel.get(), deEsserPanel.get(), saturationPanel.get(),

@@ -3,7 +3,6 @@
 #include <juce_graphics/juce_graphics.h>
 #include <array>
 #include <cmath>
-#include <OniriqueLicenseData.h>
 
 namespace onirique::ui
 {
@@ -14,63 +13,24 @@ namespace onirique::ui
 //  fichier -- aucune couleur en dur ailleurs.
 //==============================================================================
 
-// ---- VOCAL MINI PRO : le noir et rouge d'ONIRIQUE, en plus moderne : noir profond, charbon neutre, rouge sombre pour la
-// profondeur ; le rouge vif est l'accent, utilisé avec mesure (arcs, témoins, choix actif) ; rose pâle pour les reflets ;
-// blanc cassé pour les textes, gris doux pour le secondaire. Pas de néon : des lueurs discrètes, du verre sombre.
-// (Les noms historiques sont gardés : « ember » est l'accent, « lilac » le reflet clair.)
-inline const juce::Colour night  { 0xff09080A };   // noir profond (fond)
-inline const juce::Colour blood  { 0xff3D0910 };   // rouge sombre (dégradés, profondeur)
-inline const juce::Colour deep   { 0xff121012 };   // charbon très sombre (panneaux)
-inline const juce::Colour deep2  { 0xff1C1517 };   // charbon chaud (menus, info-bulles, panneaux ouverts)
-inline const juce::Colour mist   { 0xffF2ECEC };   // blanc cassé (textes)
-inline const juce::Colour haze   { 0xff978C8F };   // gris doux (informations secondaires)
-inline const juce::Colour ember  { 0xffE5384A };   // rouge ONIRIQUE (accent)
-inline const juce::Colour lilac  { 0xffFFB3BC };   // rose pâle (queues de reverb, reflets, extrémités d'arcs)
-inline const juce::Colour bone   { 0xffFFF4F5 };   // blanc le plus clair (aiguilles, crêtes)
-inline const juce::Colour mint   { 0xff7DE3B6 };   // témoin discret « ça agit » (comme le voyant d'un rack)
-inline const juce::Colour line   { (juce::uint8) 255, (juce::uint8) 214, (juce::uint8) 218, 0.10f };
+inline const juce::Colour night  { 0xff0D0809 };
+inline const juce::Colour blood  { 0xff5C0008 };
+inline const juce::Colour deep   { 0xff1A080A };
+inline const juce::Colour deep2  { 0xff2A0A0E };
+inline const juce::Colour mist   { 0xffF6EEEE };
+inline const juce::Colour haze   { 0xffA88F92 };
+inline const juce::Colour ember  { 0xffE23444 };
+inline const juce::Colour bone   { 0xffFFECEE };
+inline const juce::Colour line   { (juce::uint8) 255, (juce::uint8) 210, (juce::uint8) 214, 0.13f };
 
-// Polices : display (titres), body (libelles), mono (valeurs) : Unbounded, Hanken Grotesk et JetBrains Mono, les
-// polices du site ONIRIQUE (fournies avec le module de licence). Chargees par FontScope (une par interface ouverte :
-// seuls un compteur et un pointeur brut sont statiques, rien n'est detruit au dechargement du plugin) ; sans
-// interface ouverte, des equivalents systeme.
+// Polices : display (titres), body (libelles), mono (valeurs) -- memes faces
+// systeme que le VocalBox (equivalents d'Unbounded / Hanken Grotesk / JetBrains Mono).
 enum class Face { display, body, mono };
-
-struct BrandFaces { juce::Typeface::Ptr display, body, mono, monoBold; };
-inline BrandFaces*& brandFaces() noexcept { static BrandFaces* faces = nullptr; return faces; }
-inline int& brandFaceUsers() noexcept { static int users = 0; return users; }
-
-struct FontScope
-{
-    FontScope()
-    {
-        if (brandFaceUsers()++ == 0)
-        {
-            auto* f = new BrandFaces();
-            f->display = juce::Typeface::createSystemTypefaceFor (OniriqueLicenseData::Unbounded800_ttf, OniriqueLicenseData::Unbounded800_ttfSize);
-            f->body = juce::Typeface::createSystemTypefaceFor (OniriqueLicenseData::HankenGrotesk600_ttf, OniriqueLicenseData::HankenGrotesk600_ttfSize);
-            f->mono = juce::Typeface::createSystemTypefaceFor (OniriqueLicenseData::JetBrainsMono500_ttf, OniriqueLicenseData::JetBrainsMono500_ttfSize);
-            f->monoBold = juce::Typeface::createSystemTypefaceFor (OniriqueLicenseData::JetBrainsMono600_ttf, OniriqueLicenseData::JetBrainsMono600_ttfSize);
-            brandFaces() = f;
-        }
-    }
-    ~FontScope()
-    {
-        if (--brandFaceUsers() == 0) { delete brandFaces(); brandFaces() = nullptr; }
-    }
-    JUCE_DECLARE_NON_COPYABLE (FontScope)
-};
 
 inline juce::Font font (Face f, float h, bool bold = false, float kerning = 0.0f)
 {
-    h = std::max (4.0f, h);
-    const auto* faces = brandFaces();
-    const juce::Typeface::Ptr tf = faces == nullptr ? nullptr
-                                 : f == Face::display ? faces->display : f == Face::body ? faces->body : (bold ? faces->monoBold : faces->mono);
-    // Unbounded est tres large : un peu plus petit que la hauteur demandee, pour garder les memes encombrements
-    juce::Font fnt = tf != nullptr ? juce::Font (juce::FontOptions (tf).withHeight (f == Face::display ? h * 0.86f : h))
-                                   : juce::Font (juce::FontOptions (f == Face::display ? "Bahnschrift" : f == Face::body ? "Segoe UI" : "Cascadia Mono",
-                                                                    h, bold ? juce::Font::bold : juce::Font::plain));
+    static const char* names[] { "Bahnschrift", "Segoe UI", "Cascadia Mono" };
+    juce::Font fnt (juce::FontOptions (names[(int) f], std::max (4.0f, h), bold ? juce::Font::bold : juce::Font::plain));
     if (kerning != 0.0f) fnt.setExtraKerningFactor (kerning);
     return fnt;
 }
@@ -144,13 +104,12 @@ inline void paintCard (juce::Graphics& g, juce::Rectangle<float> r, const juce::
     const float rad = 10.0f * s;
     juce::Path card;
     card.addRoundedRectangle (r.reduced (0.5f), rad);
-    // verre sombre (DA PRO SERIES) : charbon, reflet rose pale tres leger en haut, filet fin
-    g.setColour (deep.withAlpha (0.94f));
-    g.fillPath (card);
-    g.setGradientFill (juce::ColourGradient (lilac.withAlpha (0.035f), 0.0f, r.getY(), lilac.withAlpha (0.0f), 0.0f, r.getY() + r.getHeight() * 0.7f, false));
+    g.setGradientFill (juce::ColourGradient (deep2.withAlpha (0.94f), 0.0f, r.getY(), deep.withAlpha (0.96f), 0.0f, r.getBottom(), false));
     g.fillPath (card);
     g.setColour (line);
     g.strokePath (card, juce::PathStrokeType (std::max (1.0f, 0.7f * s)));
+    g.setColour (juce::Colours::white.withAlpha (0.045f));
+    g.fillRect (juce::Rectangle<float> (r.getX() + rad, r.getY() + 1.2f * s, r.getWidth() - 2.0f * rad, 1.0f));
 
     const float dot = 4.2f * s;
     const auto dotR = juce::Rectangle<float> (dot, dot).withCentre ({ r.getX() + 13.0f * s, r.getY() + 15.0f * s });
@@ -159,8 +118,8 @@ inline void paintCard (juce::Graphics& g, juce::Rectangle<float> r, const juce::
     g.setColour (on ? ember : haze.withAlpha (0.5f));
     g.fillEllipse (dotR);
 
-    g.setColour (mist);
-    g.setFont (fitFont (Face::display, 9.0f * s, titleMaxW, title, true, 0.06f));
+    g.setColour (mist.withAlpha (0.92f));
+    g.setFont (fitFont (Face::body, 9.5f * s, titleMaxW, title, true, 0.18f));
     g.drawText (title, juce::Rectangle<float> (r.getX() + 22.0f * s, r.getY() + 6.0f * s, titleMaxW, 18.0f * s),
                 juce::Justification::centredLeft, false);
 }
