@@ -37,6 +37,7 @@ private:
     OniriqueChannelStripProcessor& proc;
     bool sizeRestored = false;   // les redimensionnements de la construction ne sont pas gardés
 
+    onirique::ui::FontScope fontScope;   // polices de la charte, le temps que l'interface est ouverte
     onirique::ui::OniriqueLookAndFeel lookAndFeel;
     onirique::ui::ModuleOrderManager orderManager;
 
