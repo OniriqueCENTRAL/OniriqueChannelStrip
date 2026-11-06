@@ -16,6 +16,13 @@ namespace
 
 OniriqueLookAndFeel::OniriqueLookAndFeel()
 {
+    onirique::look::load();   // la couleur de l'interface choisie (avant de copier les couleurs)
+    applyColours();
+}
+
+// les couleurs des menus, champs et boutons : recopiées ici, et de nouveau quand la couleur de l'interface change
+void OniriqueLookAndFeel::applyColours()
+{
     setDefaultSansSerifTypefaceName ("Segoe UI");
     setColour (juce::ResizableWindow::backgroundColourId, night);
     setColour (juce::ComboBox::textColourId, mist);

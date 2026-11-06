@@ -267,6 +267,8 @@ void OniriqueChannelStripEditor::timerCallback()
     // la couleur de l'interface (menu ⋯, ou changée dans un autre plugin ONIRIQUE) : tout se redessine
     if (onirique::look::changedSince (themeSeen))
     {
+        // les menus, champs et boutons reprennent la nouvelle couleur tout de suite
+        if (auto* lf = dynamic_cast<onirique::ui::OniriqueLookAndFeel*> (&getLookAndFeel())) { lf->applyColours(); sendLookAndFeelChange(); }
         background = {};   // le fond en cache se recalcule dans la nouvelle teinte
         std::function<void (juce::Component&)> all = [&all] (juce::Component& k) { k.repaint(); for (auto* ch : k.getChildren()) all (*ch); };
         all (*this);
