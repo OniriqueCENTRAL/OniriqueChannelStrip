@@ -1,4 +1,15 @@
 #pragma once
+#if __has_include ("ui/OniriqueTheme.h")
+ #include "ui/OniriqueTheme.h"
+#elif __has_include ("UI/OniriqueTheme.h")
+ #include "UI/OniriqueTheme.h"
+#elif __has_include ("GUI/OniriqueTheme.h")
+ #include "GUI/OniriqueTheme.h"
+#elif __has_include ("../License/OniriqueTheme.h")
+ #include "../License/OniriqueTheme.h"
+#else
+ #include "OniriqueTheme.h"
+#endif
 
 #include <juce_graphics/juce_graphics.h>
 #include <array>
@@ -14,12 +25,12 @@ namespace onirique::ui
 //==============================================================================
 
 inline const juce::Colour night  { 0xff0D0809 };
-inline const juce::Colour blood  { 0xff5C0008 };
-inline const juce::Colour deep   { 0xff1A080A };
-inline const juce::Colour deep2  { 0xff2A0A0E };
+inline const juce::Colour& blood = onirique::look::litTop;   // sang (teinte de l'interface)
+inline const juce::Colour& deep = onirique::look::deepTint;
+inline const juce::Colour& deep2 = onirique::look::deepTint2;
 inline const juce::Colour mist   { 0xffF6EEEE };
 inline const juce::Colour haze   { 0xffA88F92 };
-inline const juce::Colour ember  { 0xffE23444 };
+inline const juce::Colour& ember = onirique::look::emberBar;
 inline const juce::Colour bone   { 0xffFFECEE };
 inline const juce::Colour line   { (juce::uint8) 255, (juce::uint8) 210, (juce::uint8) 214, 0.13f };
 

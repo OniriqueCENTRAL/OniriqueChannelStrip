@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "GUI/OniriqueDA.h"   // la DA de VOCALBOX
 #include "GUI/OniriqueWindowSize.h"
 #include "GUI/ParamControls.h"
 #include "GUI/TransferCurveDisplay.h"
@@ -30,6 +31,7 @@ namespace
 OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProcessor& p)
     : juce::AudioProcessorEditor (&p), proc (p), orderManager (p.apvts)
 {
+    onirique::look::load();   // la couleur de l'interface choisie, avant le premier dessin
     setLookAndFeel (&lookAndFeel);
 
     auto& apvts = proc.apvts;
@@ -259,6 +261,13 @@ juce::String OniriqueChannelStripEditor::chainText() const
 
 void OniriqueChannelStripEditor::timerCallback()
 {
+    // la couleur de l'interface (menu ⋯, ou changée dans un autre plugin ONIRIQUE) : tout se redessine
+    if (onirique::look::changedSince (themeSeen))
+    {
+        background = {};   // le fond en cache se recalcule dans la nouvelle teinte
+        std::function<void (juce::Component&)> all = [&all] (juce::Component& k) { k.repaint(); for (auto* ch : k.getChildren()) all (*ch); };
+        all (*this);
+    }
     clock += 1.0 / 60.0;
     ++frame;
 
@@ -316,8 +325,10 @@ void OniriqueChannelStripEditor::resized()
         c.setBounds (juce::roundToInt (x * s), juce::roundToInt (y * s), juce::roundToInt (w * s), juce::roundToInt (h * s));
     };
 
-    place (*inMeter, 800.0f, 9.0f, 180.0f, 12.0f);
-    place (*outMeter, 800.0f, 27.0f, 180.0f, 12.0f);
+    place (*inMeter, 800.0f, 9.0f, 140.0f, 12.0f);
+    place (*outMeter, 800.0f, 27.0f, 140.0f, 12.0f);
+    if (themeButton.getParentComponent() == nullptr) addAndMakeVisible (themeButton);
+    place (themeButton, 950.0f, 11.0f, 38.0f, 26.0f);   // ⋯ : la couleur de l'interface, après les vumètres
 
     place (*sslPanel, 10.0f, 56.0f, 210.0f, 436.0f);
     place (*deEsserPanel, 228.0f, 56.0f, 380.0f, 200.0f);
@@ -461,13 +472,8 @@ void OniriqueChannelStripEditor::renderBackground()
     background = juce::Image (juce::Image::RGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), false);
     juce::Graphics g (background);
 
-    // ---- fond : sang -> nuit, halo braise en haut a droite
-    g.fillAll (night);
-    g.setGradientFill (juce::ColourGradient (blood.withAlpha (0.85f), 0.0f, 0.0f, night.withAlpha (0.0f), 0.0f, H * 0.62f, false));
-    g.fillRect (getLocalBounds());
-    g.setGradientFill (juce::ColourGradient (ember.withAlpha (0.20f), W * 0.74f, -27.0f * s,
-                                             ember.withAlpha (0.0f), W * 0.74f + W * 0.42f, -27.0f * s, true));
-    g.fillRect (getLocalBounds());
+    // ---- fond de VOCALBOX : nuit et taches floues de la couleur de l'interface
+    g.drawImageAt (onirique::da::backdrop (getWidth(), getHeight(), W / 1100.0f), 0, 0);
 
     // ---- ombres portees des cartes (elles debordent des panneaux)
     for (auto* c : std::initializer_list<juce::Component*> { sslPanel.get(), deEsserPanel.get(), saturationPanel.get(),

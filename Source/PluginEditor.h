@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "../License/OniriqueThemeButton.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "License/LicenseOverlay.h"
 #include "PluginProcessor.h"
@@ -69,6 +70,10 @@ private:
     juce::ComponentBoundsConstrainer constrainer;
 
     std::unique_ptr<onirique::license::Overlay> licenseOverlay;
+
+    onirique::look::ThemeButton themeButton;   // ⋯ : la couleur de l'interface
+
+    int themeSeen = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OniriqueChannelStripEditor)
 };
