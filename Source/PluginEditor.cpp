@@ -214,6 +214,9 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
     logo = juce::ImageCache::getFromMemory (BinaryData::sigil_png, BinaryData::sigil_pngSize);
     shownChain = chainText();
 
+    addAndMakeVisible (bar);
+    bar.onThemeChanged = [this] { themeSeen = -1; };
+
     licenseOverlay = std::make_unique<onirique::license::Overlay> ("ONIRIQUE CHANNEL STRIP", proc.license);
     addAndMakeVisible (*licenseOverlay);
 
@@ -322,13 +325,11 @@ void OniriqueChannelStripEditor::resized()
 
     auto place = [s] (juce::Component& c, float x, float y, float w, float h)
     {
-        c.setBounds (juce::roundToInt (x * s), juce::roundToInt (y * s), juce::roundToInt (w * s), juce::roundToInt (h * s));
+        c.setBounds (juce::roundToInt (x * s), juce::roundToInt ((y + kTop) * s), juce::roundToInt (w * s), juce::roundToInt (h * s));
     };
 
-    place (*inMeter, 800.0f, 9.0f, 140.0f, 12.0f);
-    place (*outMeter, 800.0f, 27.0f, 140.0f, 12.0f);
-    if (themeButton.getParentComponent() == nullptr) addAndMakeVisible (themeButton);
-    place (themeButton, 950.0f, 11.0f, 38.0f, 26.0f);   // ⋯ : la couleur de l'interface, après les vumètres
+    place (*inMeter, 800.0f, 9.0f, 180.0f, 12.0f);
+    place (*outMeter, 800.0f, 27.0f, 180.0f, 12.0f);
 
     place (*sslPanel, 10.0f, 56.0f, 210.0f, 436.0f);
     place (*deEsserPanel, 228.0f, 56.0f, 380.0f, 200.0f);
@@ -337,14 +338,16 @@ void OniriqueChannelStripEditor::resized()
     place (*f76Panel, 616.0f, 264.0f, 374.0f, 160.0f);
     place (*noiseGatePanel, 10.0f, 500.0f, 210.0f, 132.0f);
     place (*eqPanel, 228.0f, 432.0f, 762.0f, 200.0f);
-    // La pastille de licence : dans l'en-tête, contre les vumètres IN / OUT, centrée sur eux ; sa place suit son texte.
-    const int badge = licenseOverlay->pillWidth();
-    licenseOverlay->fit (getLocalBounds(), s, { 786 - badge, 11, badge, 26 });
+    // la barre « Nuit » en haut, la pastille de licence à sa place dans la barre
+    bar.setPillWidth (licenseOverlay != nullptr ? licenseOverlay->pillWidth() : 0);
+    bar.place (s, getLocalBounds());
+    if (licenseOverlay != nullptr)
+        licenseOverlay->fit (getLocalBounds(), s, bar.getPillArea(), juce::Justification::centredRight);
 
     // ---- en-tete
-    logoRect = { 12.0f * s, 6.0f * s, 38.0f * s * 985.0f / 895.0f, 38.0f * s };
+    logoRect = { 12.0f * s, 6.0f * s, 0.0f, 38.0f * s };   // le sigil est dans la barre « Nuit »
     signalRect = { 0.0f, 46.0f * s, W, 8.0f * s };
-    chainRect = { logoRect.getRight() + 9.0f * s, 30.0f * s, 520.0f * s, 12.0f * s };
+    chainRect = { logoRect.getRight() + 9.0f * s, 14.0f * s, 520.0f * s, 12.0f * s };
 
     if (logo.isValid())
     {
@@ -370,6 +373,11 @@ void OniriqueChannelStripEditor::resized()
     }
 }
 
+juce::Image OniriqueChannelStripEditor::barSigil()
+{
+    return juce::ImageCache::getFromMemory (BinaryData::sigil_png, BinaryData::sigil_pngSize);
+}
+
 //==============================================================================
 void OniriqueChannelStripEditor::paintStar (juce::Graphics& g, juce::Point<float> c, float r, float alpha)
 {
@@ -389,6 +397,7 @@ void OniriqueChannelStripEditor::paintStar (juce::Graphics& g, juce::Point<float
 void OniriqueChannelStripEditor::paintHeader (juce::Graphics& g)
 {
     const float s = scale();
+    g.addTransform (juce::AffineTransform::translation (0.0f, kTop * s));   // sous la barre « Nuit »
     const float W = (float) getWidth();
     const float t = (float) clock;
 
@@ -398,37 +407,8 @@ void OniriqueChannelStripEditor::paintHeader (juce::Graphics& g)
         paintStar (g, stars[i].first, stars[i].second, a);
     }
 
-    // sigil : lueur braise qui respire + trait net
-    if (logoScaled.isValid())
-    {
-        const float breathe = 0.5f + 0.5f * std::sin (t * juce::MathConstants<float>::twoPi / 5.0f);
-        const float pad = logoRect.getHeight() / 4.0f;
-        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-        g.setColour (ember.withAlpha (0.55f + 0.35f * breathe));
-        g.drawImage (logoGlow, logoRect.expanded (pad), juce::RectanglePlacement::stretchToFit, true);
-        g.setColour (juce::Colours::white.withAlpha (0.08f + 0.10f * breathe));
-        g.drawImage (logoGlow, logoRect.expanded (pad), juce::RectanglePlacement::stretchToFit, true);
-        g.setOpacity (1.0f);
-        g.drawImage (logoScaled, logoRect, juce::RectanglePlacement::stretchToFit);
-    }
-
     // titre + chaine de traitement (ordre reel)
     {
-        const float x = logoRect.getRight() + 9.0f * s;
-        auto f1 = font (Face::display, 20.0f * s, true, 0.10f);
-        auto f2 = font (Face::display, 20.0f * s, false, 0.10f);
-        const float w1 = textWidth (f1, "ONIRIQUE") + 2.0f;
-        const float w2 = textWidth (f2, "CHANNEL STRIP") + 2.0f;
-        const float y = 6.0f * s, hh = 24.0f * s;
-        g.setFont (f1);
-        g.setColour (ember.withAlpha (0.35f));
-        g.drawText ("ONIRIQUE", juce::Rectangle<float> (x, y + 0.7f * s, w1, hh), juce::Justification::centredLeft, false);
-        g.setColour (mist);
-        g.drawText ("ONIRIQUE", juce::Rectangle<float> (x, y, w1, hh), juce::Justification::centredLeft, false);
-        g.setFont (f2);
-        g.setColour (haze);
-        g.drawText ("CHANNEL STRIP", juce::Rectangle<float> (x + w1 + 7.0f * s, y, w2, hh), juce::Justification::centredLeft, false);
-
         g.setColour (haze.withAlpha (0.75f));
         g.setFont (fitFont (Face::mono, 7.0f * s, chainRect.getWidth(), shownChain, false, 0.06f));
         g.drawText (shownChain, chainRect, juce::Justification::centredLeft, false);

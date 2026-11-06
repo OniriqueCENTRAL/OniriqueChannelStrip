@@ -1,4 +1,5 @@
 #pragma once
+#include "ui/OniriqueBar.h"   // la barre « Nuit » de VOCALBOX
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../License/OniriqueThemeButton.h"
@@ -38,6 +39,10 @@ private:
     OniriqueChannelStripProcessor& proc;
     bool sizeRestored = false;   // les redimensionnements de la construction ne sont pas gardés
 
+    // la barre « Nuit » (presets, A/B, copier/coller, menu ⋯ avec la couleur de l'interface), au-dessus de la façade
+    static juce::Image barSigil();
+    onirique::nuit::Bar bar { proc.presets, proc.apvts, "CHANNEL STRIP", barSigil(), 1000, 1400 };
+
     onirique::ui::OniriqueLookAndFeel lookAndFeel;
     onirique::ui::ModuleOrderManager orderManager;
 
@@ -57,7 +62,8 @@ private:
     onirique::ui::MeterBar* noiseGateGrMeter = nullptr;
 
     static constexpr float refCanvasW = 1000.0f;
-    static constexpr float refCanvasH = 640.0f;
+    static constexpr float kTop = 50.0f;          // la barre « Nuit » au-dessus de la façade d'origine (640)
+    static constexpr float refCanvasH = 640.0f + kTop;
 
     // ---- en-tete vivant (sigil qui respire, etoiles, impulsion sur la ligne de signal)
     juce::Image background, logo, logoScaled, logoGlow;

@@ -216,6 +216,7 @@ void OniriqueChannelStripProcessor::getStateInformation (MemoryBlock& destData)
     if (auto state = apvts.copyState(); state.isValid())
     {
         state.setProperty ("oniriqueCurrentProgram", currentProgramIndex, nullptr);
+        presets.writeState (state);   // le côté A/B écouté, et l'autre
 
         if (auto xml = state.createXml())
             copyXmlToBinary (*xml, destData);
@@ -230,6 +231,7 @@ void OniriqueChannelStripProcessor::setStateInformation (const void* data, int s
         {
             auto newState = ValueTree::fromXml (*xml);
             currentProgramIndex = newState.getProperty ("oniriqueCurrentProgram", 0);
+            presets.readState (newState);   // l'autre côté A/B
             apvts.replaceState (newState);
 
             // replaceState() notifie l'hote des nouvelles valeurs de

@@ -6,6 +6,7 @@
 #include "Parameters.h"
 #include "Presets.h"
 #include "DSP/ModuleChain.h"
+#include "ui/OniriquePresets.h"
 
 //==============================================================================
 /** ONIRIQUE CHANNEL STRIP : channel strip vocal complet (8 modules), ordre de
@@ -46,6 +47,23 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::AudioProcessorValueTreeState apvts;
+
+    /** Les presets d'usine (ceux de Presets.cpp), ceux de l'utilisateur et la comparaison A/B : la barre « Nuit » du haut. */
+    static std::vector<onirique::PresetBank::Stock> nuitStock()
+    {
+        std::vector<onirique::PresetBank::Stock> list;
+        for (const auto& p : onirique::getFactoryPresets())
+        {
+            onirique::PresetBank::Stock s;
+            s.name = p.name;
+            s.tags = 0;
+            for (const auto& v : p.values)
+                s.values.push_back (v);
+            list.push_back (std::move (s));
+        }
+        return list;
+    }
+    onirique::PresetBank presets { apvts, "ChannelStrip", nuitStock(), {} };
 
     /** Acces a la chaine de modules pour l'interface graphique (ex:
         recuperer l'analyseur de spectre de l'EQ via getModule(...)). Le
