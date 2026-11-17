@@ -106,61 +106,20 @@ inline void drawValuePill (juce::Graphics& g, juce::Rectangle<float> r, const ju
     g.drawText (text, textR, juce::Justification::centred, false);
 }
 
-/** Carte de module (verre sombre, filet fin, reflet haut, point braise +
-    titre). L'ombre portee est dessinee par l'editeur, sous la carte. `s` =
-    echelle maquette -> pixels. */
-inline void paintCard (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, bool on,
-                       float s, float titleMaxW)
+/** Titre de section, comme sur VERB : le nom, puis un filet jusqu'au bout de la section. `s` = échelle façade -> pixels. */
+inline void paintSectionTitle (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, bool on, float s)
 {
-    const float rad = 10.0f * s;
-    juce::Path card;
-    card.addRoundedRectangle (r.reduced (0.5f), rad);
-    g.setGradientFill (juce::ColourGradient (deep2.withAlpha (0.94f), 0.0f, r.getY(), deep.withAlpha (0.96f), 0.0f, r.getBottom(), false));
-    g.fillPath (card);
-    g.setColour (line);
-    g.strokePath (card, juce::PathStrokeType (std::max (1.0f, 0.7f * s)));
-    g.setColour (juce::Colours::white.withAlpha (0.045f));
-    g.fillRect (juce::Rectangle<float> (r.getX() + rad, r.getY() + 1.2f * s, r.getWidth() - 2.0f * rad, 1.0f));
-
-    const float dot = 4.2f * s;
-    const auto dotR = juce::Rectangle<float> (dot, dot).withCentre ({ r.getX() + 13.0f * s, r.getY() + 15.0f * s });
-    g.setColour (ember.withAlpha (on ? 0.35f : 0.0f));
-    g.fillEllipse (dotR.expanded (dot * 0.7f));
-    g.setColour (on ? ember : haze.withAlpha (0.5f));
-    g.fillEllipse (dotR);
-
-    g.setColour (mist.withAlpha (0.92f));
-    g.setFont (fitFont (Face::body, 9.5f * s, titleMaxW, title, true, 0.18f));
-    g.drawText (title, juce::Rectangle<float> (r.getX() + 22.0f * s, r.getY() + 6.0f * s, titleMaxW, 18.0f * s),
-                juce::Justification::centredLeft, false);
-}
-
-//==============================================================================
-//  Palette par module. Dans la DA ONIRIQUE, tous les modules partagent le meme
-//  accent braise (comme le VocalBox) : la structure est conservee pour garder
-//  l'API des panneaux, mais chaque entree pointe sur les memes teintes.
-//==============================================================================
-
-struct ModulePalette
-{
-    juce::Colour accent;
-    juce::Colour accentBright;
-    juce::Colour panelBase;
-    juce::Colour border;
-};
-
-enum class ModuleKind { ssl, deEsser, saturation, fairchild, fet1176, noiseGate, eq };
-
-inline const ModulePalette& paletteFor (ModuleKind) noexcept
-{
-    static const ModulePalette onirique { ember, bone, deep, line };
-    return onirique;
-}
-
-/** Interpole lineairement deux couleurs. */
-inline juce::Colour mix (juce::Colour a, juce::Colour b, float t) noexcept
-{
-    return a.interpolatedWith (b, juce::jlimit (0.0f, 1.0f, t));
+    const auto f = font (Face::body, 10.0f * s, true, 0.16f);
+    const float tw = textWidth (f, title);
+    g.setColour (mist.withAlpha (on ? 0.82f : 0.42f));
+    g.setFont (f);
+    g.drawText (title, r.withWidth (tw + 4.0f), juce::Justification::centredLeft, false);
+    const float x = r.getX() + tw + 12.0f * s;
+    if (r.getRight() > x)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (juce::Rectangle<float> (x, r.getCentreY(), r.getRight() - x, 1.0f));
+    }
 }
 
 //==============================================================================

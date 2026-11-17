@@ -65,6 +65,9 @@ void VariMuCompressorModule::prepare (const juce::dsp::ProcessSpec& spec)
     compressor.prepare (spec);
     inputGain.prepare (spec);
     outputGain.prepare (spec);
+    inputGain.setRampDurationSeconds (0.015);
+    outputGain.setRampDurationSeconds (0.015);
+    glow.reset (sampleRate, 0.010);   // la chaleur suit la reduction sans sauter d'un bloc a l'autre
     mixer.prepare (spec);
 
     // Chauffe le cache de parametres, hors du thread audio.
@@ -81,6 +84,7 @@ void VariMuCompressorModule::reset()
     outputGain.reset();
     mixer.reset();
     gainReductionDb.store (0.0f);
+    glow.setCurrentAndTargetValue (0.0f);
 }
 
 void VariMuCompressorModule::process (juce::dsp::AudioBlock<float>& block)
@@ -109,13 +113,16 @@ void VariMuCompressorModule::process (juce::dsp::AudioBlock<float>& block)
 
     const float reductionDb = juce::jmax (0.0f, preRmsDb - postRmsDb);
     gainReductionDb.store (reductionDb);
-    const float glowAmount  = juce::jlimit (0.0f, 1.0f, reductionDb / 12.0f);
+    glow.setTargetValue (juce::jlimit (0.0f, 1.0f, reductionDb / 12.0f));
 
-    for (size_t ch = 0; ch < numCh; ++ch)
+    for (size_t s = 0; s < numSmp; ++s)
     {
-        auto* samples = block.getChannelPointer (ch);
-        for (size_t s = 0; s < numSmp; ++s)
-            samples[s] = tubeGlow (samples[s], glowAmount);
+        const float amount = glow.getNextValue();
+        for (size_t ch = 0; ch < numCh; ++ch)
+        {
+            auto* samples = block.getChannelPointer (ch);
+            samples[s] = tubeGlow (samples[s], amount);
+        }
     }
 
     outputGain.setGainDecibels (getParam ("output"));

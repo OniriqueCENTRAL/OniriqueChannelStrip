@@ -82,18 +82,16 @@ target_sources(OniriqueChannelStrip PRIVATE
     Source/GUI/OniriqueLookAndFeel.cpp
     Source/GUI/ModuleOrderManager.h
     Source/GUI/ModuleOrderManager.cpp
-    Source/GUI/OrderBadge.h
-    Source/GUI/OrderBadge.cpp
     Source/GUI/ParamControls.h
     Source/GUI/ParamControls.cpp
     Source/GUI/ModulePanel.h
     Source/GUI/ModulePanel.cpp
+    Source/GUI/ChainView.h
+    Source/GUI/ChainView.cpp
     Source/GUI/MeterBar.h
     Source/GUI/MeterBar.cpp
     Source/GUI/TransferCurveDisplay.h
-    Source/GUI/TransferCurveDisplay.cpp
-    Source/GUI/DualDeEsserPanel.h
-    Source/GUI/DualDeEsserPanel.cpp)
+    Source/GUI/TransferCurveDisplay.cpp)
 
 target_include_directories(OniriqueChannelStrip PRIVATE Source)
 
@@ -122,3 +120,21 @@ target_link_libraries(OniriqueChannelStrip
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# ---------------------------------------------------------------------------
+#  Outil de développement : fait passer une voix de synthèse dans chaque module
+#  (mesures avant / après) et rend l'interface dans une image PNG, sans DAW ni
+#  fenêtre. N'est pas construit par défaut.
+#      cmake --build build --config Release --target OniriqueChannelStripBench
+# ---------------------------------------------------------------------------
+add_executable(OniriqueChannelStripBench EXCLUDE_FROM_ALL Tools/Bench.cpp)
+target_include_directories(OniriqueChannelStripBench PRIVATE
+    Source
+    $<TARGET_PROPERTY:OniriqueChannelStrip,INCLUDE_DIRECTORIES>)
+target_compile_definitions(OniriqueChannelStripBench PRIVATE
+    $<TARGET_PROPERTY:OniriqueChannelStrip,COMPILE_DEFINITIONS>)
+target_link_libraries(OniriqueChannelStripBench PRIVATE OniriqueChannelStrip)
+
+if(MSVC)
+    target_compile_options(OniriqueChannelStripBench PRIVATE /utf-8)
+endif()

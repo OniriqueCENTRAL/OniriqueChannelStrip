@@ -10,7 +10,7 @@ namespace
 {
     constexpr float gainRampSeconds = 0.015f;
     constexpr float maxDensityBonusDb = 4.0f;   // sur-saturation ajoutee aux niveaux les plus forts
-    constexpr float envelopeCoeff = 0.9990f;    // lissage du suivi de niveau (RMS par bloc, puis lissage inter-blocs)
+    constexpr double envelopeSeconds = 10.7;    // lissage du suivi de niveau (0,999 par bloc de 512 a 48 kHz, quelle que soit la taille de bloc)
 }
 
 SaturationModule::SaturationModule (juce::AudioProcessorValueTreeState& state, const juce::String& moduleID)
@@ -195,6 +195,7 @@ void SaturationModule::processCore (juce::dsp::AudioBlock<float>& blk)
 
     // --- Suivi de niveau d'entree (coloration progressive avec le niveau) ---
     const float currentBlockRms = blockRmsLevel (blk);
+    const float envelopeCoeff = (float) std::exp (-(double) blk.getNumSamples() / (effectiveSampleRate() * envelopeSeconds));
     envelopeLevel = currentBlockRms + envelopeCoeff * (envelopeLevel - currentBlockRms);
 
     // RMS ~0.3 (-10 dBFS) consideree comme "chaude" : au-dela, on ajoute

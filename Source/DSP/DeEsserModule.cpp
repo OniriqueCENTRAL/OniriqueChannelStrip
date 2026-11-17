@@ -69,7 +69,12 @@ void DeEsserModule::prepare (const juce::dsp::ProcessSpec& spec)
     bellCompanion.prepare (spec);
     mixer.prepare (spec);
 
-    detectorBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize);
+    // tranches d'1 ms (voir process()) : ces deux tampons n'ont jamais besoin d'etre plus longs
+    const int slice = juce::jmax (16, juce::roundToInt (sampleRate * 0.001));
+    detectorBuffer.setSize ((int) spec.numChannels, slice);
+    companionBuffer.setSize ((int) spec.numChannels, slice);
+    dryListenBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize);   // LISTEN : rien a allouer en jeu
+    wetListenBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize);
 
     // Chauffe le cache de parametres, hors du thread audio.
     for (const char* suffix : { "frequency", "threshold", "range", "attack", "release", "mix", "listen" })
@@ -87,6 +92,7 @@ void DeEsserModule::reset()
     mixer.reset();
     lastFreq = -1.0;
     smoothedLevelDb = -100.0f;
+    mainMeanSquare = companionMeanSquare = 0.0f;
     gainReductionDbMeter.store (0.0f);
     detectorLevelDbMeter.store (-100.0f);
 }
@@ -116,73 +122,75 @@ void DeEsserModule::process (juce::dsp::AudioBlock<float>& block)
             dryListenBuffer.copyFrom (ch, 0, block.getChannelPointer ((size_t) ch), numSmp);
     }
 
-    // 1) Copie du bloc dans le buffer de detection, filtrage sur les deux
-    //    bandes surveillees (sifflantes aigues + consonnes plus graves).
-    detectorBuffer.setSize (numCh, numSmp, false, false, true);
-    for (int ch = 0; ch < numCh; ++ch)
-        detectorBuffer.copyFrom (ch, 0, block.getChannelPointer ((size_t) ch), numSmp);
-
+    // 1) Filtres de detection sur les deux bandes surveillees (sifflantes aigues + consonnes plus graves).
+    //    Coefficients en tableau : aucune allocation sur le thread audio.
     const float companionFreq = safeFilterFreq (freq * companionRatioFreq, sampleRate);
     const float safeFreq      = safeFilterFreq (freq, sampleRate);
 
     if (std::abs ((double) safeFreq - lastFreq) > 0.5)
     {
         lastFreq = safeFreq;
-        *detectorMain.state      = *juce::dsp::IIR::Coefficients<float>::makeBandPass (sampleRate, safeFreq, detectionQ);
-        *detectorCompanion.state = *juce::dsp::IIR::Coefficients<float>::makeBandPass (sampleRate, companionFreq, detectionQ);
+        *detectorMain.state      = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass (sampleRate, safeFreq, detectionQ);
+        *detectorCompanion.state = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass (sampleRate, companionFreq, detectionQ);
     }
 
-    juce::AudioBuffer<float> companionBuffer;
-    companionBuffer.makeCopyOf (detectorBuffer, true);
+    // 2) Suivi par tranches d'1 ms, quelle que soit la taille de bloc du DAW : la reduction suit chaque sifflante
+    //    au lieu de changer une fois par bloc (11 ms a 512, 43 ms a 2048). L'energie de chaque bande est integree
+    //    echantillon par echantillon (~5 ms, l'equivalent de l'ancienne mesure sur un bloc de 512), on garde la
+    //    plus forte, puis l'enveloppe attack/release fait le reste, avec les memes constantes de temps.
+    const int slice = juce::jmax (16, juce::roundToInt (sampleRate * 0.001));
+    const float msCoeff = (float) std::exp (-1.0 / (0.0053 * sampleRate));
+    float maxReductionDb = 0.0f;
 
-    juce::dsp::AudioBlock<float> mainBlock (detectorBuffer);
-    juce::dsp::ProcessContextReplacing<float> mainCtx (mainBlock);
-    detectorMain.process (mainCtx);
-
-    juce::dsp::AudioBlock<float> companionBlock (companionBuffer);
-    juce::dsp::ProcessContextReplacing<float> companionCtx (companionBlock);
-    detectorCompanion.process (companionCtx);
-
-    // 2) Niveau RMS des deux bandes -> on garde la plus energique.
-    auto rmsOf = [numCh, numSmp] (const juce::AudioBuffer<float>& buf)
+    for (int start = 0; start < numSmp; start += slice)
     {
-        float sumSquares = 0.0f;
+        const int len = juce::jmin (slice, numSmp - start);
+        auto sub = block.getSubBlock ((size_t) start, (size_t) len);
+
         for (int ch = 0; ch < numCh; ++ch)
         {
-            const float chRms = buf.getRMSLevel (ch, 0, numSmp);
-            sumSquares += chRms * chRms;
+            detectorBuffer.copyFrom (ch, 0, sub.getChannelPointer ((size_t) ch), len);
+            companionBuffer.copyFrom (ch, 0, sub.getChannelPointer ((size_t) ch), len);
         }
-        return std::sqrt (sumSquares / (float) juce::jmax (1, numCh));
-    };
+        auto mainBlock = juce::dsp::AudioBlock<float> (detectorBuffer).getSubBlock (0, (size_t) len);
+        auto compBlock = juce::dsp::AudioBlock<float> (companionBuffer).getSubBlock (0, (size_t) len);
+        detectorMain.process (juce::dsp::ProcessContextReplacing<float> (mainBlock));
+        detectorCompanion.process (juce::dsp::ProcessContextReplacing<float> (compBlock));
 
-    const float mainRms      = rmsOf (detectorBuffer);
-    const float companionRms = rmsOf (companionBuffer);
-    const float rms = juce::jmax (mainRms, companionRms);
-    const float levelDb = juce::Decibels::gainToDecibels (rms, -100.0f);
+        for (int i = 0; i < len; ++i)
+        {
+            float m = 0.0f, c = 0.0f;
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                const float a = detectorBuffer.getSample (ch, i), b = companionBuffer.getSample (ch, i);
+                m += a * a; c += b * b;
+            }
+            const float inv = 1.0f / (float) juce::jmax (1, numCh);
+            mainMeanSquare      = m * inv + msCoeff * (mainMeanSquare - m * inv);
+            companionMeanSquare = c * inv + msCoeff * (companionMeanSquare - c * inv);
+        }
 
-    // 3) Enveloppe lissee attack/release (controle utilisateur).
-    const double blockSeconds = (double) numSmp / sampleRate;
-    const double timeConstant = (levelDb > smoothedLevelDb)
-                                   ? (double) attackMs * 0.001
-                                   : (double) releaseMs * 0.001;
-    const float coeff = (float) std::exp (-blockSeconds / juce::jmax (0.0001, timeConstant));
-    smoothedLevelDb = levelDb + coeff * (smoothedLevelDb - levelDb);
+        const float levelDb = juce::Decibels::gainToDecibels (std::sqrt (juce::jmax (mainMeanSquare, companionMeanSquare)), -100.0f);
+        const double timeConstant = (levelDb > smoothedLevelDb) ? (double) attackMs * 0.001 : (double) releaseMs * 0.001;
+        const float coeff = (float) std::exp (-((double) len / sampleRate) / juce::jmax (0.0001, timeConstant));
+        smoothedLevelDb = levelDb + coeff * (smoothedLevelDb - levelDb);
 
-    const float overshoot   = juce::jmax (0.0f, smoothedLevelDb - thresh);
-    const float reductionDb = juce::jlimit (0.0f, rangeDb, overshoot);
+        const float reductionDb = juce::jlimit (0.0f, rangeDb, smoothedLevelDb - thresh);
+        maxReductionDb = juce::jmax (maxReductionDb, reductionDb);
+
+        // 3) Bandes cloche dynamiques appliquees au signal reel.
+        *bellMain.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter (
+            sampleRate, safeFreq, dynamicBellQ, juce::Decibels::decibelsToGain (-reductionDb));
+        *bellCompanion.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter (
+            sampleRate, companionFreq, companionQ, juce::Decibels::decibelsToGain (-reductionDb * companionDepth));
+
+        juce::dsp::ProcessContextReplacing<float> context (sub);
+        bellMain.process (context);
+        bellCompanion.process (context);
+    }
 
     detectorLevelDbMeter.store (smoothedLevelDb);
-    gainReductionDbMeter.store (reductionDb);
-
-    // 4) Bandes cloche dynamiques appliquees au signal reel.
-    *bellMain.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-        sampleRate, safeFreq, dynamicBellQ, juce::Decibels::decibelsToGain (-reductionDb));
-    *bellCompanion.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-        sampleRate, companionFreq, companionQ, juce::Decibels::decibelsToGain (-reductionDb * companionDepth));
-
-    juce::dsp::ProcessContextReplacing<float> context (block);
-    bellMain.process (context);
-    bellCompanion.process (context);
+    gainReductionDbMeter.store (maxReductionDb);
 
     if (listen)
     {

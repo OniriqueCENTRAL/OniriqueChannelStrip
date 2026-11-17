@@ -9,23 +9,32 @@
 #include "DSP/DeEsserModule.h"
 #include "DSP/NoiseGateModule.h"
 #include "BinaryData.h"
-#include <algorithm>
 
 using namespace onirique;
 using namespace onirique::ui;
 
 namespace
 {
-    // Raccourci local : construit un ModulePanel a partir d'une liste de
-    // RowSpec deja en coordonnees LOCALES au panneau (voir ui-spec.json,
-    // deja soustrait de x/y du panneau -- calcule une fois pour toutes dans
-    // ce fichier, jamais a la main ailleurs).
-    std::unique_ptr<ModulePanel> makePanel (juce::AudioProcessorValueTreeState& apvts, ModuleOrderManager& orderMgr,
-                                            const juce::String& id, const juce::String& title, ModuleKind kind,
-                                            float w, float h, std::vector<RowSpec> rows)
-    {
-        return std::make_unique<ModulePanel> (apvts, orderMgr, id, title, paletteFor (kind), w, h, std::move (rows));
-    }
+using Ticks = std::vector<std::pair<float, juce::String>>;
+
+std::unique_ptr<MeterBar> grMeter (MeterBar::Orientation o, float floorDb, Ticks ticks)
+{
+    return std::make_unique<MeterBar> (o, 0.0f, floorDb, true, std::move (ticks), bone);
+}
+
+// les filets de la façade, entre les modules : { x1, y1, x2, y2 } en coordonnées de la façade
+constexpr float grooves[][4] {
+    { 16, 108, 984, 108 }, { 16, 390, 984, 390 }, { 16, 586, 984, 586 },
+    { 528, 120, 528, 378 }, { 424, 402, 424, 574 }, { 824, 402, 824, 574 }, { 466, 598, 466, 704 },
+};
+} // namespace
+
+ModulePanel& OniriqueChannelStripEditor::addPanel (const juce::String& id, const juce::String& title, float x, float y, float w, float h,
+                                                   std::vector<RowSpec> knobs)
+{
+    panels.push_back ({ std::make_unique<ModulePanel> (proc.apvts, id, title, w, h, knobs), x, y, w, h });
+    addAndMakeVisible (*panels.back().panel);
+    return *panels.back().panel;
 }
 
 OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProcessor& p)
@@ -33,186 +42,94 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
 {
     onirique::look::load();   // la couleur de l'interface choisie, avant le premier dessin
     setLookAndFeel (&lookAndFeel);
-
     auto& apvts = proc.apvts;
+    using R = RowSpec;
+    using O = MeterBar::Orientation;
 
-    // --- SSL CHANNEL (210x436) : 19 potards reels (2 emplacements "Q" de la
-    //     maquette n'ont pas de parametre reel pour les filtres en plateau
-    //     LF/HF -- regle 5 du brief : on ne les affiche pas plutot que
-    //     d'inventer un parametre). --------------------------------------
-    sslPanel = makePanel (apvts, orderManager, ModuleIDs::sslChannel, "SSL CHANNEL", ModuleKind::ssl, 210, 436, {
-        RowSpec::knob ("input", "INPUT", 58, 50, 0.8f),
-        RowSpec::knob ("hpf", "HPF", 116, 50, 0.8f),
-        RowSpec::knob ("output", "OUTPUT", 174, 50, 0.8f),
-
-        // "EQ"/"COMPRESSOR" : titres de groupe places dans la colonne de
-        // droite des rangees LF et HF (seules rangees EQ a n'avoir que 2
-        // potards, FREQ/GAIN -- pas de Q reel, voir plus haut -- donc la
-        // 3e colonne y est libre : aucun risque de chevaucher un potard).
-        RowSpec::section ("EQ", 150, 96, 54, 16, true),
-        RowSpec::section ("LF", 12, 94, 40, 16),
-        RowSpec::knob ("lowFreq", "FREQ", 58, 102, 0.8f),
-        RowSpec::knob ("lowGain", "GAIN", 116, 102, 0.8f),
-
-        RowSpec::section ("LMF", 12, 146, 40, 16),
-        RowSpec::knob ("lowMidFreq", "FREQ", 58, 154, 0.8f),
-        RowSpec::knob ("lowMidGain", "GAIN", 116, 154, 0.8f),
-        RowSpec::knob ("lowMidQ", "Q", 174, 154, 0.8f),
-
-        RowSpec::section ("HMF", 12, 198, 40, 16),
-        RowSpec::knob ("highMidFreq", "FREQ", 58, 206, 0.8f),
-        RowSpec::knob ("highMidGain", "GAIN", 116, 206, 0.8f),
-        RowSpec::knob ("highMidQ", "Q", 174, 206, 0.8f),
-
-        RowSpec::section ("HF", 12, 250, 40, 16),
-        RowSpec::knob ("highFreq", "FREQ", 58, 258, 0.8f),
-        RowSpec::knob ("highGain", "GAIN", 116, 258, 0.8f),
-
-        // Meme principe que "EQ" plus haut : colonne de droite libre de la
-        // rangee HF (2 potards seulement), juste avant la section
-        // compresseur/gate qui suit.
-        RowSpec::section ("COMPRESSOR", 146, 252, 60, 16, true),
-        RowSpec::knob ("threshold", "THRESH", 58, 310, 0.8f),
-        RowSpec::knob ("ratio", "RATIO", 116, 310, 0.8f),
-        RowSpec::knob ("attack", "ATTACK", 174, 310, 0.8f),
-
-        RowSpec::knob ("release", "RELEASE", 58, 362, 0.8f),
-        RowSpec::knob ("makeup", "MAKEUP", 116, 362, 0.8f),
-        RowSpec::knob ("gateThreshold", "GATE", 174, 362, 0.8f),
-    });
-
-    if (auto* sslModule = dynamic_cast<SSLChannelModule*> (proc.getModuleChain().getModule (ModuleIDs::sslChannel)))
-    {
-        sslGrMeter = &sslPanel->addExtra (std::make_unique<MeterBar> (
-            MeterBar::Orientation::horizontal, 0.0f, -12.0f, true,
-            std::vector<std::pair<float, juce::String>> { { 0.0f, "0" }, { -3.0f, "-3" }, { -5.0f, "-5" }, { -7.0f, "-7" }, { -10.0f, "-10" } },
-            paletteFor (ModuleKind::ssl).accentBright), 34.0f, 410.0f, 164.0f, 14.0f);
-        juce::ignoreUnused (sslModule);
-    }
-
-    // --- DE-ESSER (fusionne, 380x200) ------------------------------------
-    auto* deEsser1 = dynamic_cast<DeEsserModule*> (proc.getModuleChain().getModule (ModuleIDs::deEsser1));
-    auto* deEsser2 = dynamic_cast<DeEsserModule*> (proc.getModuleChain().getModule (ModuleIDs::deEsser2));
-    jassert (deEsser1 != nullptr && deEsser2 != nullptr);
-    deEsserPanel = std::make_unique<DualDeEsserPanel> (apvts, orderManager, ModuleIDs::deEsser1, ModuleIDs::deEsser2,
-                                                       *deEsser1, *deEsser2, paletteFor (ModuleKind::deEsser), 380, 200);
-
-    // --- SATURATION (374x200) : potards IN/OUT ajoutes (grille 3 colonnes
-    //     resserree a 0.8 pour leur faire de la place, INPUT/DRIVE/TONE en
-    //     haut, MIX/OUTPUT en bas sous DRIVE/TONE). IN est un trim pur,
-    //     independant du Drive (qui pilote la saturation elle-meme). -------
-    saturationPanel = makePanel (apvts, orderManager, ModuleIDs::saturation, "SATURATION", ModuleKind::saturation, 374, 200, {
-        RowSpec::knob ("input", "IN", 196, 116, 0.8f),
-        RowSpec::knob ("drive", "DRIVE", 266, 116, 0.8f),
-        RowSpec::knob ("tone", "TONE", 336, 116, 0.8f),
-        RowSpec::knob ("mix", "MIX", 266, 170, 0.8f),
-        RowSpec::knob ("output", "OUT", 336, 170, 0.8f),
-    });
-    saturationPanel->addExtra (std::make_unique<TransferCurveDisplay> (apvts, ModuleIDs::saturation,
-                               paletteFor (ModuleKind::saturation).accent, paletteFor (ModuleKind::saturation).accentBright),
-                               12.0f, 38.0f, 140.0f, 150.0f);
-    saturationPanel->addExtra (std::make_unique<ParamSegmented> (apvts, ModuleIDs::saturation + "_type",
-                               paletteFor (ModuleKind::saturation).accent, paletteFor (ModuleKind::saturation).accentBright),
-                               168.0f, 42.0f, 192.0f, 24.0f);
-
-    // --- FAIRCHILD 670 (380x160) ------------------------------------------
-    fairchildPanel = makePanel (apvts, orderManager, ModuleIDs::fairchild670, "FAIRCHILD 670", ModuleKind::fairchild, 380, 160, {
-        RowSpec::knob ("input", "INPUT", 26, 84, 0.9f, true),
-        RowSpec::knob ("threshold", "THRESH", 72, 84, 0.9f, true),
-        RowSpec::knob ("attack", "ATTACK", 118, 84, 0.9f, true),
-        RowSpec::knob ("release", "RELEASE", 164, 84, 0.9f, true),
-        RowSpec::knob ("ratio", "RATIO", 210, 84, 0.9f, true),
-        RowSpec::knob ("output", "OUTPUT", 256, 84, 0.9f, true),
-        RowSpec::knob ("mix", "MIX", 302, 84, 0.9f, true),
-    });
-    if (auto* fairchildModule = dynamic_cast<VariMuCompressorModule*> (proc.getModuleChain().getModule (ModuleIDs::fairchild670)))
-    {
-        fairchildGrMeter = &fairchildPanel->addExtra (std::make_unique<MeterBar> (
-            MeterBar::Orientation::vertical, 0.0f, -12.0f, true,
-            std::vector<std::pair<float, juce::String>> { { 0.0f, "0" }, { -1.0f, "-1" }, { -3.0f, "-3" }, { -5.0f, "-5" }, { -7.0f, "-7" }, { -10.0f, "-10" } },
-            paletteFor (ModuleKind::fairchild).accentBright), 333.0f, 36.0f, 14.0f, 100.0f);
-        juce::ignoreUnused (fairchildModule);
-    }
-
-    // --- 1176 FET (374x160) -------------------------------------------------
-    f76Panel = makePanel (apvts, orderManager, ModuleIDs::fet1176, "1176 FET", ModuleKind::fet1176, 374, 160, {
-        RowSpec::knob ("input", "INPUT", 30, 104, 0.9f, true),
-        RowSpec::knob ("threshold", "THRESH", 80, 104, 0.9f, true),
-        RowSpec::knob ("attack", "ATTACK", 130, 104, 0.9f, true),
-        RowSpec::knob ("release", "RELEASE", 180, 104, 0.9f, true),
-        RowSpec::knob ("output", "OUTPUT", 230, 104, 0.9f, true),
-        RowSpec::knob ("mix", "MIX", 280, 104, 0.9f, true),
-    });
-    f76Panel->addExtra (std::make_unique<ParamSegmented> (apvts, ModuleIDs::fet1176 + "_ratio",
-                        paletteFor (ModuleKind::fet1176).accent, paletteFor (ModuleKind::fet1176).accentBright),
-                        16.0f, 36.0f, 208.0f, 20.0f);
-    f76Panel->addExtra (std::make_unique<ParamToggle> (apvts, ModuleIDs::fet1176 + "_autoGain", "AUTO",
-                        paletteFor (ModuleKind::fet1176).accent, paletteFor (ModuleKind::fet1176).accentBright),
-                        222.0f, 38.0f, 90.0f, 16.0f);
-    if (auto* f76Module = dynamic_cast<FETCompressorModule*> (proc.getModuleChain().getModule (ModuleIDs::fet1176)))
-    {
-        f76GrMeter = &f76Panel->addExtra (std::make_unique<MeterBar> (
-            MeterBar::Orientation::vertical, 0.0f, -12.0f, true,
-            std::vector<std::pair<float, juce::String>> { { 0.0f, "0" }, { -1.0f, "-1" }, { -3.0f, "-3" }, { -5.0f, "-5" }, { -7.0f, "-7" }, { -10.0f, "-10" } },
-            paletteFor (ModuleKind::fet1176).accentBright), 334.0f, 36.0f, 14.0f, 100.0f);
-        juce::ignoreUnused (f76Module);
-    }
-
-    // --- NOISE GATE (210x132) : style "NS1" -- un gros potard THRESHOLD,
-    //     plus ATTACK/RELEASE en potards secondaires (demande explicite).
-    //     hold/range/hysteresis gardent leurs valeurs par defaut et restent
-    //     automatisables depuis l'hote, simplement pas affiches ici --
-    //     aucun parametre retire cote DSP, seule la presentation change. --
-    noiseGatePanel = makePanel (apvts, orderManager, ModuleIDs::noiseGate, "NOISE GATE", ModuleKind::noiseGate, 210, 132, {
-        RowSpec::knob ("threshold", "THRESHOLD", 44, 74, 1.05f),
-        RowSpec::knob ("attack", "ATTACK", 108, 74, 0.62f),
-        RowSpec::knob ("release", "RELEASE", 152, 74, 0.62f),
-    });
-    if (auto* gateModule = dynamic_cast<NoiseGateModule*> (proc.getModuleChain().getModule (ModuleIDs::noiseGate)))
-    {
-        noiseGateGrMeter = &noiseGatePanel->addExtra (std::make_unique<MeterBar> (
-            MeterBar::Orientation::vertical, 0.0f, -40.0f, true,
-            std::vector<std::pair<float, juce::String>> { { 0.0f, "0" }, { -10.0f, "-10" }, { -20.0f, "-20" }, { -30.0f, "-30" }, { -40.0f, "-40" } },
-            paletteFor (ModuleKind::noiseGate).accentBright), 186.0f, 40.0f, 14.0f, 82.0f);
-        juce::ignoreUnused (gateModule);
-    }
-
-    // --- EQ (762x200) : style "MAAG EQ4" -- 8 potards boost/cut a frequence
-    //     fixe (une bande = un potard), plutot qu'une courbe a glisser.
-    //     Les parametres freq/Q/type de chaque bande restent inchanges cote
-    //     DSP (donc automatisables depuis l'hote) : seul `gain` est expose
-    //     ici, le reste garde ses valeurs par defaut -- rien n'est retire,
-    //     seule la presentation change (regle du projet). ------------------
-    eqPanel = makePanel (apvts, orderManager, ModuleIDs::eq, "EQ", ModuleKind::eq, 762, 200, {
-        RowSpec::knob ("band1_gain", "80 CUT",   48, 108, 1.3f),
-        RowSpec::knob ("band2_gain", "150 LOW",  143, 108, 1.3f),
-        RowSpec::knob ("band3_gain", "400",      238, 108, 1.3f),
-        RowSpec::knob ("band4_gain", "900",      333, 108, 1.3f),
-        RowSpec::knob ("band5_gain", "2.5k",     428, 108, 1.3f),
-        RowSpec::knob ("band6_gain", "5k",       524, 108, 1.3f),
-        RowSpec::knob ("band7_gain", "9k HIGH",  619, 108, 1.3f),
-        RowSpec::knob ("band8_gain", "14k AIR",  714, 108, 1.3f),
-    });
-
-    addAndMakeVisible (*sslPanel);
-    addAndMakeVisible (*deEsserPanel);
-    addAndMakeVisible (*saturationPanel);
-    addAndMakeVisible (*fairchildPanel);
-    addAndMakeVisible (*f76Panel);
-    addAndMakeVisible (*noiseGatePanel);
-    addAndMakeVisible (*eqPanel);
-
-    // --- En-tete : meters IN / OUT (le sigil, le titre et la chaine sont
-    //     dessines par l'editeur lui-meme, voir paintHeader()) --------------
-    inMeter = std::make_unique<MeterBar> (MeterBar::Orientation::horizontal, -40.0f, 0.0f, true,
-                                          std::vector<std::pair<float, juce::String>> {}, ember);
-    outMeter = std::make_unique<MeterBar> (MeterBar::Orientation::horizontal, -40.0f, 0.0f, true,
-                                           std::vector<std::pair<float, juce::String>> {}, ember);
+    // ---- la chaîne du son, entre les meters IN et OUT
+    chain = std::make_unique<ChainView> (apvts, orderManager, [this] (const juce::String& id) { return reductionOf (id); });
+    addAndMakeVisible (*chain);
+    inMeter = std::make_unique<MeterBar> (O::vertical, 0.0f, -48.0f, false, Ticks {}, ember);
+    outMeter = std::make_unique<MeterBar> (O::vertical, 0.0f, -48.0f, false, Ticks {}, ember);
     addAndMakeVisible (*inMeter);
     addAndMakeVisible (*outMeter);
 
-    logo = juce::ImageCache::getFromMemory (BinaryData::sigil_png, BinaryData::sigil_pngSize);
-    shownChain = chainText();
+    // ---- SSL CHANNEL : l'EQ en colonnes (une par bande), le compresseur à droite
+    auto& ssl = addPanel (ModuleIDs::sslChannel, "SSL CHANNEL", 16, 118, 500, 262, {
+        R::knob ("input", "INPUT", 30, 54, 34),          R::knob ("hpf", "HPF", 30, 122, 34),             R::knob ("output", "OUTPUT", 30, 190, 34),
+        R::knob ("lowFreq", "FREQ", 94, 54, 34),         R::knob ("lowGain", "GAIN", 94, 122, 34),
+        R::knob ("lowMidFreq", "FREQ", 150, 54, 34),     R::knob ("lowMidGain", "GAIN", 150, 122, 34),    R::knob ("lowMidQ", "Q", 150, 190, 34),
+        R::knob ("highMidFreq", "FREQ", 206, 54, 34),    R::knob ("highMidGain", "GAIN", 206, 122, 34),   R::knob ("highMidQ", "Q", 206, 190, 34),
+        R::knob ("highFreq", "FREQ", 262, 54, 34),       R::knob ("highGain", "GAIN", 262, 122, 34),
+        R::knob ("threshold", "THRESH", 344, 54, 34),    R::knob ("ratio", "RATIO", 400, 54, 34),         R::knob ("attack", "ATTACK", 456, 54, 34),
+        R::knob ("release", "RELEASE", 344, 122, 34),    R::knob ("makeup", "MAKEUP", 400, 122, 34),      R::knob ("gateThreshold", "GATE", 456, 122, 34),
+    });
+    ssl.addExtra (std::make_unique<SectionLabel> ("EQ", ember, true), 66, 24, 228, 14);
+    for (auto [band, cx] : { std::pair { "LF", 94.0f }, { "LMF", 150.0f }, { "HMF", 206.0f }, { "HF", 262.0f } })
+        ssl.addExtra (std::make_unique<SectionLabel> (band, ember), cx - 28, 38, 56, 12);
+    ssl.addExtra (std::make_unique<SectionLabel> ("COMPRESSEUR", ember, true), 318, 24, 182, 14);
+    meters.push_back ({ ModuleIDs::sslChannel, &ssl.addExtra (grMeter (O::horizontal, -12.0f, { { 0.0f, "0" }, { -3.0f, "-3" }, { -6.0f, "-6" }, { -10.0f, "-10" } }), 322, 214, 166, 9), true });
+
+    // ---- SATURATION : la courbe de transfert et son type à gauche, DRIVE au milieu des réglages
+    auto& sat = addPanel (ModuleIDs::saturation, "SATURATION", 540, 118, 444, 262, {
+        R::knob ("input", "IN", 246, 44, 44),  R::knob ("drive", "DRIVE", 330, 26, 72),  R::knob ("tone", "TONE", 414, 44, 44),
+        R::knob ("mix", "MIX", 280, 152, 44),  R::knob ("output", "OUT", 380, 152, 44),
+    });
+    sat.addExtra (std::make_unique<TransferCurveDisplay> (apvts, ModuleIDs::saturation, ember, bone), 0, 28, 190, 190);
+    sat.addExtra (std::make_unique<ParamSegmented> (apvts, ModuleIDs::saturation + "_type", ember, bone), 0, 230, 190, 26);
+
+    // ---- les deux DE-ESSER l'un sous l'autre : le seuil se règle sur le meter de niveau (trait blanc)
+    for (int k = 0; k < 2; ++k)
+    {
+        const auto& id = k == 0 ? ModuleIDs::deEsser1 : ModuleIDs::deEsser2;
+        auto& de = addPanel (id, k == 0 ? "DE-ESS 1" : "DE-ESS 2", 16, k == 0 ? 400.0f : 492.0f, 396, 84, {
+            R::knob ("frequency", "FREQ", 28, 20, 30), R::knob ("range", "RANGE", 84, 20, 30), R::knob ("attack", "ATTACK", 140, 20, 30),
+            R::knob ("release", "RELEASE", 196, 20, 30), R::knob ("mix", "MIX", 252, 20, 30),
+        });
+        de.addExtra (std::make_unique<ParamToggle> (apvts, id + "_listen", "LISTEN", ember, bone), 286, 40, 64, 20);
+        auto& level = de.addExtra (std::make_unique<MeterBar> (O::vertical, 0.0f, -40.0f, false, Ticks {}, ember), 360, 22, 8, 58);
+        level.enableThresholdMarker ([&apvts, id] (float db)
+        {
+            if (auto* param = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (id + "_threshold")))
+            {
+                param->beginChangeGesture();
+                param->setValueNotifyingHost (param->convertTo0to1 (db));
+                param->endChangeGesture();
+            }
+        });
+        meters.push_back ({ id, &level, false });
+        meters.push_back ({ id, &de.addExtra (grMeter (O::vertical, -12.0f, { { 0.0f, "0" }, { -6.0f, "-6" }, { -12.0f, "-12" } }), 374, 22, 8, 58), true });
+    }
+
+    // ---- 1176 FET : le ratio et AUTO en haut, les six potards dessous
+    auto& fet = addPanel (ModuleIDs::fet1176, "1176 FET", 436, 400, 376, 176, {
+        R::knob ("input", "INPUT", 28, 70, 36), R::knob ("threshold", "THRESH", 84, 70, 36), R::knob ("attack", "ATTACK", 140, 70, 36),
+        R::knob ("release", "RELEASE", 196, 70, 36), R::knob ("output", "OUTPUT", 252, 70, 36), R::knob ("mix", "MIX", 308, 70, 36),
+    });
+    fet.addExtra (std::make_unique<ParamSegmented> (apvts, ModuleIDs::fet1176 + "_ratio", ember, bone), 0, 28, 210, 24);
+    fet.addExtra (std::make_unique<ParamToggle> (apvts, ModuleIDs::fet1176 + "_autoGain", "AUTO GAIN", ember, bone), 220, 28, 104, 24);
+    meters.push_back ({ ModuleIDs::fet1176, &fet.addExtra (grMeter (O::vertical, -12.0f, { { 0.0f, "0" }, { -3.0f, "-3" }, { -6.0f, "-6" }, { -12.0f, "-12" } }), 342, 26, 8, 140), true });
+
+    // ---- NOISE GATE : un grand THRESHOLD, ATTACK et RELEASE dessous
+    auto& gate = addPanel (ModuleIDs::noiseGate, "NOISE GATE", 836, 400, 148, 176, {
+        R::knob ("threshold", "THRESHOLD", 52, 22, 52), R::knob ("attack", "ATTACK", 26, 108, 30), R::knob ("release", "RELEASE", 82, 108, 30),
+    });
+    meters.push_back ({ ModuleIDs::noiseGate, &gate.addExtra (grMeter (O::vertical, -40.0f, { { 0.0f, "0" }, { -20.0f, "-20" }, { -40.0f, "-40" } }), 116, 26, 8, 144), true });
+
+    // ---- FAIRCHILD 670 : les sept potards en ligne et son meter
+    auto& fair = addPanel (ModuleIDs::fairchild670, "FAIRCHILD 670", 16, 596, 440, 108, {
+        R::knob ("input", "INPUT", 28, 26, 34), R::knob ("threshold", "THRESH", 84, 26, 34), R::knob ("attack", "ATTACK", 140, 26, 34),
+        R::knob ("release", "RELEASE", 196, 26, 34), R::knob ("ratio", "RATIO", 252, 26, 34), R::knob ("output", "OUTPUT", 308, 26, 34),
+        R::knob ("mix", "MIX", 364, 26, 34),
+    });
+    meters.push_back ({ ModuleIDs::fairchild670, &fair.addExtra (grMeter (O::vertical, -12.0f, { { 0.0f, "0" }, { -6.0f, "-6" }, { -12.0f, "-12" } }), 404, 26, 8, 74), true });
+
+    // ---- EQ : huit bandes à fréquence fixe, un potard par bande
+    addPanel (ModuleIDs::eq, "EQ", 476, 596, 508, 108, {
+        R::knob ("band1_gain", "80 CUT", 30, 26, 36),  R::knob ("band2_gain", "150 LOW", 94, 26, 36), R::knob ("band3_gain", "400", 158, 26, 36),
+        R::knob ("band4_gain", "900", 222, 26, 36),    R::knob ("band5_gain", "2.5k", 286, 26, 36),   R::knob ("band6_gain", "5k", 350, 26, 36),
+        R::knob ("band7_gain", "9k HIGH", 414, 26, 36), R::knob ("band8_gain", "14k AIR", 478, 26, 36),
+    });
 
     addAndMakeVisible (bar);
     bar.onThemeChanged = [this] { themeSeen = -1; };
@@ -222,15 +139,15 @@ OniriqueChannelStripEditor::OniriqueChannelStripEditor (OniriqueChannelStripProc
 
     setOpaque (true);
     constrainer.setFixedAspectRatio (refCanvasW / refCanvasH);
-    constrainer.setSizeLimits (500, 320, 2400, 1536);
+    constrainer.setSizeLimits (600, 456, 2400, 1824);
     setConstrainer (&constrainer);
     setResizable (true, true);
     // taille d'ouverture : la règle commune des plugins ONIRIQUE (GUI/OniriqueWindowSize.h)
-    const int w = onirique::window::openingSize (proc.apvts.state, "ONIRIQUE CHANNEL STRIP", { 1400, 896 }, { 500, 320 }, { 2400, 1536 }).x;
+    const int w = onirique::window::openingSize (proc.apvts.state, "ONIRIQUE CHANNEL STRIP", { 1300, 988 }, { 600, 456 }, { 2400, 1824 }).x;
     setSize (w, juce::roundToInt ((float) w * refCanvasH / refCanvasW));
     sizeRestored = true;
 
-    startTimerHz (60);
+    startTimerHz (30);
 }
 
 OniriqueChannelStripEditor::~OniriqueChannelStripEditor()
@@ -241,25 +158,15 @@ OniriqueChannelStripEditor::~OniriqueChannelStripEditor()
 }
 
 //==============================================================================
-juce::String OniriqueChannelStripEditor::chainText() const
+float OniriqueChannelStripEditor::reductionOf (const juce::String& id) const
 {
-    // ordre de traitement REEL (parametres <id>_order), mis a jour en direct
-    static const std::pair<const juce::String*, const char*> modules[] {
-        { &ModuleIDs::noiseGate, "GATE" },         { &ModuleIDs::sslChannel, "SSL" },
-        { &ModuleIDs::deEsser1, "DE-ESS 1" },      { &ModuleIDs::deEsser2, "DE-ESS 2" },
-        { &ModuleIDs::saturation, "SATURATION" },  { &ModuleIDs::fet1176, "1176" },
-        { &ModuleIDs::fairchild670, "FAIRCHILD" }, { &ModuleIDs::eq, "EQ" },
-    };
-
-    std::array<std::pair<int, const char*>, 8> sorted;
-    for (size_t i = 0; i < sorted.size(); ++i)
-        sorted[i] = { orderManager.getOrder (*modules[i].first), modules[i].second };
-    std::stable_sort (sorted.begin(), sorted.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
-
-    juce::String txt ("INPUT");
-    for (const auto& m : sorted)
-        txt << "  >  " << m.second;
-    return txt << "  >  OUTPUT";
+    auto* m = proc.getModuleChain().getModule (id);
+    if (auto* x = dynamic_cast<SSLChannelModule*> (m))       return x->getGainReductionDb();
+    if (auto* x = dynamic_cast<FETCompressorModule*> (m))    return x->getGainReductionDb();
+    if (auto* x = dynamic_cast<VariMuCompressorModule*> (m)) return x->getGainReductionDb();
+    if (auto* x = dynamic_cast<DeEsserModule*> (m))          return x->getGainReductionDb();
+    if (auto* x = dynamic_cast<NoiseGateModule*> (m))        return x->getGainReductionDb();
+    return 0.0f;
 }
 
 void OniriqueChannelStripEditor::timerCallback()
@@ -267,55 +174,25 @@ void OniriqueChannelStripEditor::timerCallback()
     // la couleur de l'interface (menu ⋯, ou changée dans un autre plugin ONIRIQUE) : tout se redessine
     if (onirique::look::changedSince (themeSeen))
     {
-        // les menus, champs et boutons reprennent la nouvelle couleur tout de suite
-        if (auto* lf = dynamic_cast<onirique::ui::OniriqueLookAndFeel*> (&getLookAndFeel())) { lf->applyColours(); sendLookAndFeelChange(); }
-        background = {};   // le fond en cache se recalcule dans la nouvelle teinte
+        if (auto* lf = dynamic_cast<OniriqueLookAndFeel*> (&getLookAndFeel())) { lf->applyColours(); sendLookAndFeelChange(); }
+        background = {};
         std::function<void (juce::Component&)> all = [&all] (juce::Component& k) { k.repaint(); for (auto* ch : k.getChildren()) all (*ch); };
         all (*this);
     }
-    clock += 1.0 / 60.0;
-    ++frame;
 
-    // meters a 30 images/s (ils lissent eux-memes leur affichage)
-    if ((frame & 1) == 0)
+    inMeter->setValueDb (proc.getInputPeakDb());
+    outMeter->setValueDb (proc.getOutputPeakDb());
+    for (auto& m : meters)
     {
-        inMeter->setValueDb (proc.getInputPeakDb());
-        outMeter->setValueDb (proc.getOutputPeakDb());
-
-        if (sslGrMeter != nullptr)
-            if (auto* m = dynamic_cast<SSLChannelModule*> (proc.getModuleChain().getModule (ModuleIDs::sslChannel)))
-                sslGrMeter->setValueDb (-m->getGainReductionDb());
-
-        if (fairchildGrMeter != nullptr)
-            if (auto* m = dynamic_cast<VariMuCompressorModule*> (proc.getModuleChain().getModule (ModuleIDs::fairchild670)))
-                fairchildGrMeter->setValueDb (-m->getGainReductionDb());
-
-        if (f76GrMeter != nullptr)
-            if (auto* m = dynamic_cast<FETCompressorModule*> (proc.getModuleChain().getModule (ModuleIDs::fet1176)))
-                f76GrMeter->setValueDb (-m->getGainReductionDb());
-
-        if (noiseGateGrMeter != nullptr)
-            if (auto* m = dynamic_cast<NoiseGateModule*> (proc.getModuleChain().getModule (ModuleIDs::noiseGate)))
-                noiseGateGrMeter->setValueDb (-m->getGainReductionDb());
-    }
-
-    // chaine de traitement affichee sous le titre : suit les badges d'ordre
-    if ((frame % 6) == 0)
-    {
-        const auto txt = chainText();
-        if (txt != shownChain)
+        if (m.reduction)
+            m.bar->setValueDb (-reductionOf (m.id));
+        else if (auto* de = dynamic_cast<DeEsserModule*> (proc.getModuleChain().getModule (m.id)))
         {
-            shownChain = txt;
-            repaint (chainRect.getSmallestIntegerContainer());
+            m.bar->setValueDb (de->getDetectorLevelDb());
+            if (auto* t = proc.apvts.getRawParameterValue (m.id + "_threshold"))
+                m.bar->setThresholdDb (t->load());
         }
     }
-
-    // en-tete vivant : lueur du sigil, signal qui parcourt la ligne, etoiles qui scintillent
-    repaint (logoRect.expanded (logoRect.getHeight() * 0.4f).getSmallestIntegerContainer());
-    repaint (signalRect.getSmallestIntegerContainer());
-    if ((frame & 1) == 0)
-        for (const auto& st : stars)
-            repaint (juce::Rectangle<float> (st.second * 2.4f, st.second * 2.4f).withCentre (st.first).getSmallestIntegerContainer());
 }
 
 //==============================================================================
@@ -323,56 +200,22 @@ void OniriqueChannelStripEditor::resized()
 {
     if (sizeRestored) onirique::window::remember (proc.apvts.state, getWidth(), getHeight());   // taille gardée avec le projet
     const float s = scale();
-    const float W = (float) getWidth();
-
     auto place = [s] (juce::Component& c, float x, float y, float w, float h)
     {
         c.setBounds (juce::roundToInt (x * s), juce::roundToInt ((y + kTop) * s), juce::roundToInt (w * s), juce::roundToInt (h * s));
     };
 
-    place (*inMeter, 800.0f, 9.0f, 180.0f, 12.0f);
-    place (*outMeter, 800.0f, 27.0f, 180.0f, 12.0f);
+    place (*inMeter, 18, 18, 7, 70);
+    place (*outMeter, 975, 18, 7, 70);
+    place (*chain, 34, 10, 932, 90);
+    for (auto& p : panels)
+        place (*p.panel, p.x, p.y, p.w, p.h);
 
-    place (*sslPanel, 10.0f, 56.0f, 210.0f, 436.0f);
-    place (*deEsserPanel, 228.0f, 56.0f, 380.0f, 200.0f);
-    place (*saturationPanel, 616.0f, 56.0f, 374.0f, 200.0f);
-    place (*fairchildPanel, 228.0f, 264.0f, 380.0f, 160.0f);
-    place (*f76Panel, 616.0f, 264.0f, 374.0f, 160.0f);
-    place (*noiseGatePanel, 10.0f, 500.0f, 210.0f, 132.0f);
-    place (*eqPanel, 228.0f, 432.0f, 762.0f, 200.0f);
     // la barre « Nuit » en haut, la pastille de licence à sa place dans la barre
     bar.setPillWidth (licenseOverlay != nullptr ? licenseOverlay->pillWidth() : 0);
     bar.place (s, getLocalBounds());
     if (licenseOverlay != nullptr)
         licenseOverlay->fit (getLocalBounds(), s, bar.getPillArea(), juce::Justification::centredRight);
-
-    // ---- en-tete
-    logoRect = { 12.0f * s, 6.0f * s, 0.0f, 38.0f * s };   // le sigil est dans la barre « Nuit »
-    signalRect = { 0.0f, 46.0f * s, W, 8.0f * s };
-    chainRect = { logoRect.getRight() + 9.0f * s, 14.0f * s, 520.0f * s, 12.0f * s };
-
-    if (logo.isValid())
-    {
-        // sigil pre-reduit (net) + version floutee pour la lueur, recalcules seulement au redimensionnement
-        const int lh = juce::jlimit (16, 600, juce::roundToInt (logoRect.getHeight() * 2.0f));
-        logoScaled = logo.rescaled (juce::roundToInt ((float) lh * 985.0f / 895.0f), lh, juce::Graphics::highResamplingQuality);
-        const int pad = lh / 4;
-        juce::Image src (juce::Image::ARGB, logoScaled.getWidth() + 2 * pad, logoScaled.getHeight() + 2 * pad, true);
-        { juce::Graphics lg (src); lg.drawImageAt (logoScaled, pad, pad); }
-        logoGlow = juce::Image (juce::Image::ARGB, src.getWidth(), src.getHeight(), true);
-        juce::ImageConvolutionKernel k (15);
-        k.createGaussianBlur ((float) lh / 22.0f);
-        k.applyToImage (logoGlow, src, src.getBounds());
-    }
-
-    stars.clear();
-    juce::Random rnd (11);
-    for (int i = 0; i < 12; ++i)
-    {
-        const float x = W * (0.42f + 0.34f * rnd.nextFloat());
-        const float y = (6.0f + 34.0f * rnd.nextFloat()) * s;
-        stars.push_back ({ { x, y }, (1.7f + 3.0f * rnd.nextFloat() * rnd.nextFloat()) * s });
-    }
 }
 
 juce::Image OniriqueChannelStripEditor::barSigil()
@@ -380,92 +223,22 @@ juce::Image OniriqueChannelStripEditor::barSigil()
     return juce::ImageCache::getFromMemory (BinaryData::sigil_png, BinaryData::sigil_pngSize);
 }
 
-//==============================================================================
-void OniriqueChannelStripEditor::paintStar (juce::Graphics& g, juce::Point<float> c, float r, float alpha)
-{
-    // etoile a 4 branches, reprise du sigil
-    juce::Path st;
-    const float k = 0.16f * r;
-    st.startNewSubPath (c.x, c.y - r);
-    st.lineTo (c.x + k, c.y - k); st.lineTo (c.x + r, c.y); st.lineTo (c.x + k, c.y + k);
-    st.lineTo (c.x, c.y + r);     st.lineTo (c.x - k, c.y + k); st.lineTo (c.x - r, c.y); st.lineTo (c.x - k, c.y - k);
-    st.closeSubPath();
-    g.setColour (ember.withAlpha (0.25f * alpha));
-    g.fillEllipse (juce::Rectangle<float> (r * 1.1f, r * 1.1f).withCentre (c));
-    g.setColour (mist.withAlpha (alpha));
-    g.fillPath (st);
-}
-
-void OniriqueChannelStripEditor::paintHeader (juce::Graphics& g)
-{
-    const float s = scale();
-    g.addTransform (juce::AffineTransform::translation (0.0f, kTop * s));   // sous la barre « Nuit »
-    const float W = (float) getWidth();
-    const float t = (float) clock;
-
-    for (size_t i = 0; i < stars.size(); ++i)
-    {
-        const float a = 0.15f + 0.75f * (0.5f + 0.5f * std::sin (t * (0.9f + 0.37f * (float) (i % 5)) + (float) i * 1.7f));
-        paintStar (g, stars[i].first, stars[i].second, a);
-    }
-
-    // titre + chaine de traitement (ordre reel)
-    {
-        g.setColour (haze.withAlpha (0.75f));
-        g.setFont (fitFont (Face::mono, 7.0f * s, chainRect.getWidth(), shownChain, false, 0.06f));
-        g.drawText (shownChain, chainRect, juce::Justification::centredLeft, false);
-    }
-
-    // libelles des meters IN / OUT
-    g.setColour (haze);
-    g.setFont (font (Face::mono, 7.5f * s, true, 0.08f));
-    g.drawText ("IN",  juce::Rectangle<float> (772.0f * s,  9.0f * s, 24.0f * s, 12.0f * s), juce::Justification::centredRight, false);
-    g.drawText ("OUT", juce::Rectangle<float> (772.0f * s, 27.0f * s, 24.0f * s, 12.0f * s), juce::Justification::centredRight, false);
-
-    // ligne de signal : filet qui s'estompe aux bords + impulsion lumineuse qui la parcourt
-    {
-        const float ly = 49.5f * s;
-        juce::ColourGradient cg (juce::Colours::transparentBlack, 10.0f * s, ly, juce::Colours::transparentBlack, W - 10.0f * s, ly, false);
-        cg.addColour (0.08, line);
-        cg.addColour (0.92, line);
-        g.setGradientFill (cg);
-        g.fillRect (juce::Rectangle<float> (10.0f * s, ly, W - 20.0f * s, std::max (1.0f, 0.7f * s)));
-
-        const float len = 88.0f * s;
-        const float span = W - 20.0f * s + len;
-        const float px = 10.0f * s - len + std::fmod (t * 0.24f, 1.0f) * span;
-        const auto streak = juce::Rectangle<float> (px, ly - 1.0f * s, len, 2.4f * s);
-        juce::ColourGradient sg (bone.withAlpha (0.0f), streak.getX(), ly, ember, streak.getRight(), ly, false);
-        sg.addColour (0.6, bone);
-        g.reduceClipRegion (juce::Rectangle<float> (10.0f * s, signalRect.getY(), W - 20.0f * s, signalRect.getHeight()).toNearestInt());
-        g.setColour (ember.withAlpha (0.25f));
-        g.fillRoundedRectangle (streak.expanded (0.0f, 1.7f * s).withTrimmedLeft (len * 0.5f), 2.0f * s);
-        g.setGradientFill (sg);
-        g.fillRoundedRectangle (streak, streak.getHeight() * 0.5f);
-    }
-}
-
-// fond fixe (degrades + ombres portees des cartes) rendu une fois par taille :
-// les animations (potards, en-tete) ne recalculent jamais les flous d'ombre
+// le fond fixe (nuit de VOCALBOX, filets entre les modules, noms des meters) : rendu une fois par taille
 void OniriqueChannelStripEditor::renderBackground()
 {
     const float s = scale();
-    const float W = (float) getWidth(), H = (float) getHeight();
     background = juce::Image (juce::Image::RGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), false);
     juce::Graphics g (background);
+    g.drawImageAt (onirique::da::backdrop (getWidth(), getHeight(), (float) getWidth() / 1100.0f), 0, 0);
 
-    // ---- fond de VOCALBOX : nuit et taches floues de la couleur de l'interface
-    g.drawImageAt (onirique::da::backdrop (getWidth(), getHeight(), W / 1100.0f), 0, 0);
+    g.setColour (juce::Colours::white.withAlpha (0.07f));
+    for (auto& l : grooves)
+        g.drawLine (l[0] * s, (l[1] + kTop) * s, l[2] * s, (l[3] + kTop) * s, 1.0f);
 
-    // ---- ombres portees des cartes (elles debordent des panneaux)
-    for (auto* c : std::initializer_list<juce::Component*> { sslPanel.get(), deEsserPanel.get(), saturationPanel.get(),
-                                                             fairchildPanel.get(), f76Panel.get(), noiseGatePanel.get(), eqPanel.get() })
-    {
-        juce::Path card;
-        card.addRoundedRectangle (c->getBounds().toFloat(), 10.0f * s);
-        juce::DropShadow (juce::Colours::black.withAlpha (0.55f), juce::roundToInt (19.0f * s), { 0, juce::roundToInt (8.0f * s) })
-            .drawForPath (g, card);
-    }
+    g.setColour (haze);
+    g.setFont (font (Face::body, 8.5f * s, true, 0.14f));
+    g.drawText ("IN", juce::Rectangle<float> (2 * s, (92 + kTop) * s, 40 * s, 12 * s), juce::Justification::centred, false);
+    g.drawText ("OUT", juce::Rectangle<float> (958 * s, (92 + kTop) * s, 40 * s, 12 * s), juce::Justification::centred, false);
 }
 
 void OniriqueChannelStripEditor::paint (juce::Graphics& g)
@@ -473,7 +246,4 @@ void OniriqueChannelStripEditor::paint (juce::Graphics& g)
     if (background.getWidth() != getWidth() || background.getHeight() != getHeight())
         renderBackground();
     g.drawImageAt (background, 0, 0);
-
-    juce::Graphics::ScopedSaveState ss (g);
-    paintHeader (g);
 }

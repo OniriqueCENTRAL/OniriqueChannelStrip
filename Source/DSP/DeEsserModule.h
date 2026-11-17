@@ -46,7 +46,7 @@ private:
     DynamicBell    bellMain, bellCompanion;            // reduction appliquee au signal reel
     juce::dsp::DryWetMixer<float> mixer { 512 };
 
-    juce::AudioBuffer<float> detectorBuffer;
+    juce::AudioBuffer<float> detectorBuffer, companionBuffer;   // une tranche d'1 ms, filtree par chaque detecteur
 
     // Buffers du mode LISTEN (style Waves) : n'allouent/copient rien quand
     // le bouton n'est pas actif (voir process()). dryListenBuffer = signal
@@ -57,6 +57,7 @@ private:
 
     double lastFreq = -1.0;
     float  smoothedLevelDb = -100.0f;
+    float  mainMeanSquare = 0.0f, companionMeanSquare = 0.0f;   // energie integree de chaque bande
 
     std::atomic<float> gainReductionDbMeter { 0.0f };
     std::atomic<float> detectorLevelDbMeter { -100.0f };

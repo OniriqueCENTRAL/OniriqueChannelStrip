@@ -31,11 +31,11 @@ private:
     juce::dsp::Gain<float> inputGain, outputGain;
     juce::dsp::DryWetMixer<float> mixer { 512 };
 
-    juce::AudioBuffer<float> dryLevelBuffer;   // copie pre-compression, pour mesurer la reduction de gain
 
     // Compensation auto-gain lissee (evite les sauts de niveau quand elle
     // s'engage/se desengage ou quand la reduction varie brusquement).
     float smoothedAutoGainDb = 0.0f;
+    float inPower = 0.0f, outPower = 0.0f;   // energie avant / apres compression, integree (gain auto)
 
     std::atomic<float> gainReductionDb { 0.0f };
 

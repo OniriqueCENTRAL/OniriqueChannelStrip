@@ -1,18 +1,9 @@
 #include "OniriqueLookAndFeel.h"
-#include "OniriqueKnob.h"
+#include "OniriqueKnobLogo.h"
 #include "UIStyle.h"
-#include <cmath>
 
 namespace onirique::ui
 {
-
-namespace
-{
-    juce::Point<float> onCircle (juce::Point<float> c, float r, float ang)
-    {
-        return { c.x + std::sin (ang) * r, c.y - std::cos (ang) * r };
-    }
-}
 
 OniriqueLookAndFeel::OniriqueLookAndFeel()
 {
@@ -45,34 +36,17 @@ void OniriqueLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
     const float D = juce::jmin (b.getWidth(), b.getHeight());
     if (D < 8.0f) return;
 
-    const auto c = b.getCentre();
-    const float R = D * 0.5f, u = D / 150.0f;
     const auto& props = s.getProperties();
     const float shown = (float) props.getWithDefault ("shown", pos);
     const float glow = (float) props.getWithDefault ("glow", 0.0f);
     const bool bipolar = (bool) props.getWithDefault ("bipolar", false);
+    const bool hot = s.isMouseOverOrDragging() || glow > 0.5f;
 
-    // ---- le potard ONIRIQUE, le même dans tous les plugins de la marque (OniriqueKnob.h) : graduations allumées
-    //      jusqu'à la valeur (depuis le centre si bipolaire), corps biseauté, aiguille à l'étoile
-    onirique::ui::drawKnob (g, b, shown, a0, a1, ember, bipolar, s.isMouseOverOrDragging() || glow > 0.5f);
-
-    // ---- bornes de l'echelle (seulement si le potard est assez grand pour rester lisible)
-    const auto minL = props["minLabel"].toString(), maxL = props["maxLabel"].toString();
-    if ((minL.isNotEmpty() || maxL.isNotEmpty()) && D >= 70.0f)
-    {
-        g.setColour (haze.withAlpha (0.8f));
-        for (int side = 0; side < 2; ++side)
-        {
-            const auto& txt = side == 0 ? minL : maxL;
-            const auto f = fitFont (Face::mono, std::max (7.0f, 13.0f * u), 0.30f * D, txt);
-            const float tw = textWidth (f, txt) + 2.0f;
-            const auto pt = onCircle (c, R * 0.9f, side == 0 ? a0 : a1);
-            const float cx = juce::jlimit (b.getX() + tw * 0.5f, b.getRight() - tw * 0.5f, pt.x);
-            g.setFont (f);
-            g.drawText (txt, juce::Rectangle<float> (tw, f.getHeight() * 1.3f).withCentre ({ cx, pt.y + 0.17f * R }),
-                        juce::Justification::centred, false);
-        }
-    }
+    // les potards du logo (OniriqueKnobLogo.h) : « Constellation » pour la dynamique, « Sceau » pour le timbre
+    if (props["model"].toString() == "constellation")
+        drawKnobConstellation (g, b, shown, a0, a1, ember, bipolar, hot);
+    else
+        drawKnobSceau (g, b, shown, a0, a1, ember, bipolar, hot);
 }
 
 //==============================================================================

@@ -2,22 +2,19 @@
 #include "ui/OniriqueBar.h"   // la barre « Nuit » de VOCALBOX
 
 #include <juce_audio_processors/juce_audio_processors.h>
-#include "../License/OniriqueThemeButton.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "License/LicenseOverlay.h"
 #include "PluginProcessor.h"
 #include "GUI/OniriqueLookAndFeel.h"
 #include "GUI/ModuleOrderManager.h"
 #include "GUI/ModulePanel.h"
-#include "GUI/DualDeEsserPanel.h"
+#include "GUI/ChainView.h"
 #include "GUI/MeterBar.h"
 
 //==============================================================================
-/** Interface complete de ONIRIQUE CHANNEL STRIP, dans la DA ONIRIQUE (la meme
-    que ONIRIQUE VOCALBOX : nuit / sang, accent braise, cartes en verre
-    sombre, lueurs, en-tete vivant). Disposition ABSOLUE, aux coordonnees de
-    la maquette 1000x640, mise a l'echelle au redimensionnement en conservant
-    le ratio 1000:640 (ComponentBoundsConstrainer). Aucun changement DSP. */
+/** Interface de ONIRIQUE CHANNEL STRIP, de la même famille que VERB et TUNER : la barre « Nuit » en haut, la chaîne
+    du son en constellation, puis les huit modules à plat sur la façade, séparés par des filets. Disposition aux
+    coordonnées d'une façade de 1000 de large, mise à l'échelle en gardant ses proportions. */
 class OniriqueChannelStripEditor : public juce::AudioProcessorEditor,
                                    private juce::Timer
 {
@@ -31,10 +28,8 @@ public:
 private:
     void timerCallback() override;
     float scale() const noexcept { return (float) getWidth() / refCanvasW; }
-    void paintHeader (juce::Graphics&);
-    void paintStar (juce::Graphics&, juce::Point<float> c, float r, float alpha);
     void renderBackground();
-    juce::String chainText() const;
+    float reductionOf (const juce::String& moduleID) const;
 
     OniriqueChannelStripProcessor& proc;
     bool sizeRestored = false;   // les redimensionnements de la construction ne sont pas gardés
@@ -46,39 +41,26 @@ private:
     onirique::ui::OniriqueLookAndFeel lookAndFeel;
     onirique::ui::ModuleOrderManager orderManager;
 
+    std::unique_ptr<onirique::ui::ChainView> chain;
     std::unique_ptr<onirique::ui::MeterBar> inMeter, outMeter;
 
-    std::unique_ptr<onirique::ui::ModulePanel> sslPanel;
-    std::unique_ptr<onirique::ui::DualDeEsserPanel> deEsserPanel;
-    std::unique_ptr<onirique::ui::ModulePanel> saturationPanel;
-    std::unique_ptr<onirique::ui::ModulePanel> fairchildPanel;
-    std::unique_ptr<onirique::ui::ModulePanel> f76Panel;
-    std::unique_ptr<onirique::ui::ModulePanel> noiseGatePanel;
-    std::unique_ptr<onirique::ui::ModulePanel> eqPanel;
+    // un module : son panneau et sa place sur la façade
+    struct Placed { std::unique_ptr<onirique::ui::ModulePanel> panel; float x, y, w, h; };
+    std::vector<Placed> panels;
+    onirique::ui::ModulePanel& addPanel (const juce::String& id, const juce::String& title, float x, float y, float w, float h,
+                                         std::vector<onirique::ui::RowSpec> knobs);
 
-    onirique::ui::MeterBar* sslGrMeter = nullptr;
-    onirique::ui::MeterBar* fairchildGrMeter = nullptr;
-    onirique::ui::MeterBar* f76GrMeter = nullptr;
-    onirique::ui::MeterBar* noiseGateGrMeter = nullptr;
+    // les meters des modules, nourris par le minuteur de l'éditeur : module, meter, réduction (sinon niveau détecté)
+    struct Meter { juce::String id; onirique::ui::MeterBar* bar; bool reduction; };
+    std::vector<Meter> meters;
 
     static constexpr float refCanvasW = 1000.0f;
-    static constexpr float kTop = 50.0f;          // la barre « Nuit » au-dessus de la façade d'origine (640)
-    static constexpr float refCanvasH = 640.0f + kTop;
+    static constexpr float kTop = 50.0f;                // la barre « Nuit » au-dessus de la façade
+    static constexpr float refCanvasH = 710.0f + kTop;
 
-    // ---- en-tete vivant (sigil qui respire, etoiles, impulsion sur la ligne de signal)
-    juce::Image background, logo, logoScaled, logoGlow;
-    juce::Rectangle<float> logoRect, signalRect, chainRect;
-    std::vector<std::pair<juce::Point<float>, float>> stars;   // position, taille
-    juce::String shownChain;
-    double clock = 0.0;
-    int frame = 0;
-
+    juce::Image background;
     juce::ComponentBoundsConstrainer constrainer;
-
     std::unique_ptr<onirique::license::Overlay> licenseOverlay;
-
-    onirique::look::ThemeButton themeButton;   // ⋯ : la couleur de l'interface
-
     int themeSeen = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OniriqueChannelStripEditor)

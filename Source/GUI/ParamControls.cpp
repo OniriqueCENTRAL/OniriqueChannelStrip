@@ -52,9 +52,8 @@ namespace
 }
 
 //==============================================================================
-ParamKnob::ParamKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramID,
-                      const juce::String& displayLabel, juce::Colour, juce::Colour, bool showMidValue)
-    : displayName (displayLabel), hasMid (showMidValue)
+ParamKnob::ParamKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramID, const juce::String& displayLabel)
+    : displayName (displayLabel)
 {
     auto* param = apvts.getParameter (paramID);
     jassert (param != nullptr);
@@ -64,30 +63,32 @@ ParamKnob::ParamKnob (juce::AudioProcessorValueTreeState& apvts, const juce::Str
     slider.setRotaryParameters (kPi * -0.75f, kPi * 0.75f, true);
     slider.setMouseDragSensitivity (220);
     auto& props = slider.getProperties();
-    props.set ("shown", 0.0f);     // a l'ouverture, les arcs se deploient jusqu'a leur valeur
+    props.set ("shown", 0.0f);     // à l'ouverture, les potards se déploient jusqu'à leur valeur
     props.set ("glow", 0.0f);
+
+    // « Constellation » pour la dynamique, « Sceau » pour le timbre (les gains et l'EQ de la tranche SSL compris)
+    static const juce::StringArray sslDynamics { "threshold", "ratio", "attack", "release", "makeup", "gateThreshold" };
+    const bool dynamics = paramID.startsWith ("noisegate") || paramID.startsWith ("deesser") || paramID.startsWith ("fet1176")
+                       || paramID.startsWith ("fairchild670")
+                       || (paramID.startsWith ("sslchannel_") && sslDynamics.contains (paramID.fromFirstOccurrenceOf ("_", false, false)));
+    props.set ("model", dynamics ? "constellation" : "sceau");
     addAndMakeVisible (slider);
 
     if (param != nullptr)
     {
         attachment = std::make_unique<juce::SliderParameterAttachment> (*param, slider);
-        slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));   // double-clic = defaut
+        slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));   // double-clic = défaut
 
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (param))
         {
             const auto range = ranged->getNormalisableRange();
-            props.set ("minLabel", formatKnobValue (range.start, unitLabel));
-            props.set ("maxLabel", formatKnobValue (range.end, unitLabel));
-            props.set ("bipolar", range.start < 0.0f && range.end > 0.0f);   // gains +/- : arc depuis le centre
-
-            if (hasMid)
-                midText = formatKnobValue (ranged->convertFrom0to1 (ranged->getDefaultValue()), unitLabel);
+            props.set ("bipolar", range.start < 0.0f && range.end > 0.0f);   // gains +/- : depuis le centre
         }
     }
 
     slider.onDragStart   = [this] { dragging = true;  animate(); };
     slider.onDragEnd     = [this] { dragging = false; animate(); };
-    slider.onValueChange = [this] { animate(); };
+    slider.onValueChange = [this] { animate(); repaint (valueArea.getSmallestIntegerContainer().expanded (2)); };
     slider.addMouseListener (this, false);
 
     animate();
@@ -117,7 +118,7 @@ void ParamKnob::timerCallback()
     props.set ("shown", shown);
     props.set ("glow", glow);
     slider.repaint();
-    repaint (labelArea.getSmallestIntegerContainer().expanded (2));
+    repaint (nameArea.getUnion (valueArea).getSmallestIntegerContainer().expanded (2));
 
     if (! changed)
         stopTimer();
@@ -125,49 +126,27 @@ void ParamKnob::timerCallback()
 
 void ParamKnob::resized()
 {
-    // [valeur par defaut (si showMid)] + cadran + nom (ou pastille de valeur au survol)
     const auto area = getLocalBounds().toFloat();
     const float s = uiScale;
-    const float midH = hasMid ? 10.0f * s : 0.0f;
-    const float labelH = 11.0f * s, gap = 1.5f * s;
-
-    midArea = area.withHeight (midH);
-    dialD = std::max (10.0f, juce::jmin (area.getWidth() - 10.0f * s, area.getHeight() - midH - 23.0f * s));
-    const auto dial = juce::Rectangle<float> (dialD, dialD).withCentre ({ area.getCentreX(), area.getY() + midH + dialD * 0.5f });
-    slider.setBounds (dial.toNearestInt());
-
-    labelArea = juce::Rectangle<float> (std::min (area.getWidth(), dialD + 8.0f * s), labelH)
-                    .withCentre ({ area.getCentreX(), dial.getBottom() + gap + labelH * 0.5f });
+    nameArea = area.withHeight (14.0f * s);
+    const auto dial = juce::Rectangle<float> (dialD, dialD).withCentre ({ area.getCentreX(), nameArea.getBottom() + 2.0f * s + dialD * 0.5f });
+    // les potards du logo laissent une marge pour leur lueur : la zone dessinée déborde un peu de la case du potard
+    slider.setBounds (dial.expanded (dialD * 0.2f).toNearestInt());
+    valueArea = juce::Rectangle<float> (area.getWidth(), 14.0f * s).withCentre ({ area.getCentreX(), dial.getBottom() + 3.0f * s + 7.0f * s });
 }
 
 void ParamKnob::paint (juce::Graphics& g)
 {
     const float s = uiScale;
+    g.setColour (haze.interpolatedWith (mist, glow));
+    g.setFont (fitFont (Face::body, 8.6f * s, nameArea.getWidth(), displayName, true, 0.12f));
+    g.drawText (displayName, nameArea, juce::Justification::centred, false);
 
-    if (hasMid && midText.isNotEmpty())
-    {
-        g.setColour (haze.withAlpha (0.7f));
-        g.setFont (fitFont (Face::mono, 7.0f * s, midArea.getWidth(), midText));
-        g.drawText (midText, midArea, juce::Justification::centred, false);
-    }
-
-    // nom -> pastille de valeur : fondu croise pilote par la lueur
-    const float pill = juce::jlimit (0.0f, 1.0f, glow * 1.4f);
-    if (pill < 0.999f)
-    {
-        g.setColour (haze.interpolatedWith (mist, glow).withMultipliedAlpha (1.0f - pill));
-        g.setFont (fitFont (Face::body, 8.2f * s, dialD * 0.95f, displayName, true, 0.12f));
-        g.drawText (displayName, labelArea, juce::Justification::centred, false);
-    }
-    if (pill > 0.001f)
-    {
-        juce::Graphics::ScopedSaveState ss (g);
-        g.setOpacity (pill);
-        drawValuePill (g, labelArea.reduced (0.0f, 0.5f * s), valueText(), glow, s * 0.55f);
-    }
+    g.setColour (mist.withAlpha (0.72f).interpolatedWith (ember.interpolatedWith (bone, 0.35f), glow));
+    g.setFont (fitFont (Face::mono, 8.8f * s, valueArea.getWidth(), valueText()));
+    g.drawText (valueText(), valueArea, juce::Justification::centred, false);
 }
 
-//==============================================================================
 PowerSwitch::PowerSwitch()
 {
     setClickingTogglesState (true);
@@ -397,34 +376,25 @@ void SectionLabel::paint (juce::Graphics& g)
     auto b = getLocalBounds().toFloat();
     const float h = b.getHeight();
 
+    // sans filet : le nom d'une bande (LF, LMF…), centré au-dessus de sa colonne
     if (! hasRule)
     {
-        // sous-titre de bande (LF / LMF / HMF / HF) : mono discret
         g.setColour (haze.withAlpha (0.85f));
-        g.setFont (fitFont (Face::mono, h * 0.56f, b.getWidth(), labelText, true, 0.08f));
-        g.drawText (labelText, b, juce::Justification::centredLeft, false);
+        g.setFont (fitFont (Face::body, h * 0.78f, b.getWidth(), labelText, true, 0.12f));
+        g.drawText (labelText, b, juce::Justification::centred, false);
         return;
     }
 
-    // titre de groupe : point braise + texte clair + filet fin jusqu'au bord droit
-    const float dot = h * 0.26f;
-    const auto dotR = juce::Rectangle<float> (dot, dot).withCentre ({ b.getX() + dot * 0.5f + 1.0f, b.getCentreY() });
-    g.setColour (ember.withAlpha (0.35f));
-    g.fillEllipse (dotR.expanded (dot * 0.6f));
-    g.setColour (ember);
-    g.fillEllipse (dotR);
-    b.removeFromLeft (dot + 4.0f);
-
-    const auto f = fitFont (Face::body, h * 0.56f, b.getWidth(), labelText, true, 0.16f);
+    // avec filet : le titre d'un groupe (EQ, COMPRESSEUR), puis un filet jusqu'au bout
+    const auto f = fitFont (Face::body, h * 0.72f, b.getWidth(), labelText, true, 0.14f);
     const float tw = std::min (b.getWidth(), textWidth (f, labelText) + 4.0f);
-    g.setColour (mist.withAlpha (0.92f));
+    g.setColour (mist.withAlpha (0.7f));
     g.setFont (f);
     g.drawText (labelText, b.removeFromLeft (tw), juce::Justification::centredLeft, false);
-
-    if (b.getWidth() > 2.0f)
+    if (b.getWidth() > 8.0f)
     {
-        g.setColour (line);
-        g.fillRect (juce::Rectangle<float> (b.getX() + 2.0f, b.getCentreY(), b.getWidth() - 2.0f, 1.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (juce::Rectangle<float> (b.getX() + 6.0f, b.getCentreY(), b.getWidth() - 6.0f, 1.0f));
     }
 }
 

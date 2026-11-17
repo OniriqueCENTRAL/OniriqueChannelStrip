@@ -11,7 +11,8 @@ namespace
     // Index du menu "ratio" -> valeur de ratio appliquee au compresseur.
     constexpr float ratioTable[4] = { 4.0f, 8.0f, 12.0f, 20.0f };
 
-    constexpr float autoGainSmoothCoeff = 0.90f;   // lissage inter-blocs de la compensation
+    constexpr double autoGainSeconds    = 0.10;    // lissage de la compensation (0,9 par bloc de 512 a 48 kHz, quelle que soit la taille de bloc)
+    constexpr float gainRampSeconds     = 0.015f;  // IN, OUT et gain auto glissent au lieu de sauter d'un bloc a l'autre
     constexpr float autoGainMaxDb       = 18.0f;   // securite : compensation jamais demesuree
 }
 
@@ -64,9 +65,9 @@ void FETCompressorModule::prepare (const juce::dsp::ProcessSpec& spec)
     compressor.prepare (spec);
     inputGain.prepare (spec);
     outputGain.prepare (spec);
+    inputGain.setRampDurationSeconds (gainRampSeconds);
+    outputGain.setRampDurationSeconds (gainRampSeconds);
     mixer.prepare (spec);
-
-    dryLevelBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize);
 
     // Chauffe le cache de parametres, hors du thread audio.
     for (const char* suffix : { "input", "threshold", "ratio", "attack", "release",
@@ -83,12 +84,12 @@ void FETCompressorModule::reset()
     outputGain.reset();
     mixer.reset();
     smoothedAutoGainDb = 0.0f;
+    inPower = outPower = 0.0f;
     gainReductionDb.store (0.0f);
 }
 
 void FETCompressorModule::process (juce::dsp::AudioBlock<float>& block)
 {
-    const auto numCh  = (int) block.getNumChannels();
     const auto numSmp = (int) block.getNumSamples();
 
     mixer.setWetMixProportion (getParam ("mix") / 100.0f);
@@ -105,49 +106,27 @@ void FETCompressorModule::process (juce::dsp::AudioBlock<float>& block)
     juce::dsp::ProcessContextReplacing<float> context (block);
     inputGain.process (context);
 
-    // Niveau d'entree (post-trim, pre-compression) : reference pour mesurer
-    // la reduction de gain reellement appliquee par le compresseur.
-    const bool autoGainOn = getParam ("autoGain") > 0.5f;
-    float inputRmsDb = -100.0f;
-
-    if (autoGainOn)
-    {
-        dryLevelBuffer.setSize (numCh, numSmp, false, false, true);
-        for (int ch = 0; ch < numCh; ++ch)
-            dryLevelBuffer.copyFrom (ch, 0, block.getChannelPointer ((size_t) ch), numSmp);
-
-        float sumSq = 0.0f;
-        for (int ch = 0; ch < numCh; ++ch)
-        {
-            const float r = dryLevelBuffer.getRMSLevel (ch, 0, numSmp);
-            sumSq += r * r;
-        }
-        inputRmsDb = juce::Decibels::gainToDecibels (
-            std::sqrt (sumSq / (float) juce::jmax (1, numCh)), -100.0f);
-    }
-
-    // Mesure de la reduction de gain (interface uniquement) : RMS avant/
-    // apres le compresseur, independamment de l'auto-gain.
-    const float preCompDb = juce::Decibels::gainToDecibels (blockRmsLevel (block), -100.0f);
+    // Niveaux avant / apres le compresseur : meter de reduction (bloc par bloc) et reference du gain auto.
+    const float preRms  = blockRmsLevel (block);
     compressor.process (context);
-    const float postCompDbForMeter = juce::Decibels::gainToDecibels (blockRmsLevel (block), -100.0f);
-    gainReductionDb.store (juce::jmax (0.0f, preCompDb - postCompDbForMeter));
+    const float postRms = blockRmsLevel (block);
+    gainReductionDb.store (juce::jmax (0.0f, juce::Decibels::gainToDecibels (preRms, -100.0f)
+                                           - juce::Decibels::gainToDecibels (postRms, -100.0f)));
 
-    if (autoGainOn)
+    if (getParam ("autoGain") > 0.5f)
     {
-        const float outputRmsDb = juce::Decibels::gainToDecibels (blockRmsLevel (block), -100.0f);
-
-        // Reduction mesuree = combien le niveau a baisse pendant ce bloc ;
-        // on ne compense qu'une partie (0.9) pour rester naturel, et on
-        // lisse pour eviter le pompage si la reduction varie vite.
-        const float measuredReductionDb = juce::jmax (0.0f, inputRmsDb - outputRmsDb);
-        const float targetCompDb = juce::jlimit (0.0f, autoGainMaxDb, measuredReductionDb * 0.9f);
-
-        smoothedAutoGainDb = targetCompDb + autoGainSmoothCoeff * (smoothedAutoGainDb - targetCompDb);
+        // Reduction mesuree sur l'energie integree dans le temps (~100 ms) avant et apres le compresseur, donc la
+        // meme quelle que soit la taille de bloc du DAW ; on n'en compense qu'une partie (0.9) pour rester naturel.
+        const float smoothing = (float) std::exp (-(double) numSmp / (sampleRate * autoGainSeconds));
+        inPower  = preRms * preRms + smoothing * (inPower - preRms * preRms);
+        outPower = postRms * postRms + smoothing * (outPower - postRms * postRms);
+        const float measuredReductionDb = juce::jmax (0.0f, 10.0f * std::log10 ((inPower + 1.0e-12f) / (outPower + 1.0e-12f)));
+        smoothedAutoGainDb = juce::jlimit (0.0f, autoGainMaxDb, measuredReductionDb * 0.9f);
     }
     else
     {
         smoothedAutoGainDb = 0.0f;
+        inPower = outPower = 0.0f;
     }
 
     outputGain.setGainDecibels (getParam ("output") + smoothedAutoGainDb);

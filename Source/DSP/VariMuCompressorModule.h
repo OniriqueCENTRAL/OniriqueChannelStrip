@@ -31,6 +31,7 @@ private:
     juce::dsp::Compressor<float> compressor;
     juce::dsp::Gain<float> inputGain, outputGain;
     juce::dsp::DryWetMixer<float> mixer { 512 };
+    juce::SmoothedValue<float> glow;   // chaleur des lampes, 0 a 1 selon la reduction
 
     std::atomic<float> gainReductionDb { 0.0f };
 

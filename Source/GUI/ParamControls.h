@@ -16,23 +16,19 @@ namespace onirique::ui
 juce::String formatKnobValue (float value, const juce::String& unitLabel);
 
 //==============================================================================
-/** Potard rotatif ONIRIQUE (rendu dans OniriqueLookAndFeel::drawRotarySlider)
-    + nom dessous. Au survol / pendant le reglage, le nom laisse place a une
-    pastille de valeur lumineuse et l'arc braise s'illumine. A l'ouverture,
-    les arcs se deploient jusqu'a leur valeur (comme le VocalBox).
-    Bornes min/max derivees du NormalisableRange REEL du parametre. */
+/** Potard rotatif ONIRIQUE (rendu dans OniriqueLookAndFeel::drawRotarySlider), comme sur VERB : le nom au-dessus,
+    la valeur dessous, qui s'allume au survol et pendant le réglage. « Constellation » pour les modules de dynamique
+    (gate, de-esser, compresseurs), « Sceau » pour le timbre (EQ, saturation, gains). À l'ouverture, les potards se
+    déploient jusqu'à leur valeur. */
 class ParamKnob : public juce::Component,
                   private juce::Timer
 {
 public:
-    ParamKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramID,
-              const juce::String& displayLabel, juce::Colour accentColour, juce::Colour accentBrightColour,
-              bool showMidValue = false);
+    ParamKnob (juce::AudioProcessorValueTreeState& apvts, const juce::String& paramID, const juce::String& displayLabel);
     ~ParamKnob() override;
 
-    /** Echelle maquette -> pixels du panneau parent (textes et marges en
-        unites maquette, comme le reste de l'interface). */
-    void setUiScale (float s) { uiScale = s; resized(); }
+    /** Échelle façade -> pixels, et diamètre du potard en pixels. */
+    void setUiScale (float s, float dialPixels) { uiScale = s; dialD = dialPixels; resized(); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -49,11 +45,11 @@ private:
     juce::Slider slider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     std::unique_ptr<juce::SliderParameterAttachment> attachment;
 
-    juce::String displayName, unitLabel, midText;
-    bool hasMid = false, hovering = false, dragging = false;
+    juce::String displayName, unitLabel;
+    bool hovering = false, dragging = false;
     float uiScale = 1.0f, shown = 0.0f, glow = 0.0f;
-    juce::Rectangle<float> labelArea, midArea;
-    float dialD = 10.0f;
+    juce::Rectangle<float> nameArea, valueArea;
+    float dialD = 38.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParamKnob)
 };
