@@ -88,14 +88,16 @@ void ChainView::paint (juce::Graphics& g)
     const float s = scale(), y = lineY();
     const float x0 = slotX (0), x9 = slotX (9);
 
-    // le fil de la constellation, puis le signal qui le parcourt de IN à OUT
-    g.setColour (bone.withAlpha (0.16f));
-    g.fillRect (juce::Rectangle<float> (x0, y - 0.5f, x9 - x0, 1.0f));
+    // le fil de la constellation, puis le signal qui le parcourt de IN à OUT ; le fil s'interrompt autour des étoiles
     {
-        const float len = 90.0f * s, t = (float) std::fmod (clock * 0.22, 1.0);
-        const float px = x0 - len + t * (x9 - x0 + len);
         juce::Graphics::ScopedSaveState ss (g);
         g.reduceClipRegion (juce::Rectangle<float> (x0, y - 6.0f * s, x9 - x0, 12.0f * s).toNearestInt());
+        for (auto& n : nodes)
+            g.excludeClipRegion (juce::Rectangle<float> (28.0f * s, 14.0f * s).withCentre ({ n.x, y }).toNearestInt());
+        g.setColour (bone.withAlpha (0.16f));
+        g.fillRect (juce::Rectangle<float> (x0, y - 0.5f, x9 - x0, 1.0f));
+        const float len = 90.0f * s, t = (float) std::fmod (clock * 0.22, 1.0);
+        const float px = x0 - len + t * (x9 - x0 + len);
         juce::ColourGradient streak (bone.withAlpha (0.0f), px, y, ember, px + len, y, false);
         streak.addColour (0.7, bone.withAlpha (0.7f));
         g.setGradientFill (streak);
@@ -124,8 +126,6 @@ void ChainView::paint (juce::Graphics& g)
             const bool hot = (int) i == hover || (int) i == dragging;
             const float r = (hot ? 10.0f : 8.5f) * s;
 
-            g.setColour (night);
-            g.fillEllipse (juce::Rectangle<float> (2.6f * r, 2.6f * r).withCentre (c));   // le fil s'arrête autour de l'étoile
             const float gr = juce::jlimit (0.0f, 1.0f, n.reduction / 8.0f);
             if (gr > 0.01f)
             {

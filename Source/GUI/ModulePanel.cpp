@@ -33,13 +33,6 @@ void ModulePanel::paint (juce::Graphics& g)
     paintSectionTitle (g, { 22.0f * s, 0.0f, (float) getWidth() - 22.0f * s, headH * s }, titleText, on, s);
 }
 
-void ModulePanel::paintOverChildren (juce::Graphics& g)
-{
-    if (veil < 0.002f) return;
-    g.setColour (night.withAlpha (0.66f * veil));
-    g.fillRect (getLocalBounds().toFloat().withTrimmedTop ((headH + 2.0f) * scaleFactor()));
-}
-
 void ModulePanel::resized()
 {
     const float s = scaleFactor();
@@ -61,8 +54,16 @@ void ModulePanel::resized()
 void ModulePanel::timerCallback()
 {
     const float target = bypassRaw != nullptr && bypassRaw->load() > 0.5f ? 1.0f : 0.0f;
-    if (veil < 0.0f) { veil = target; repaint(); }
-    else if (approach (veil, target, 0.25f)) repaint();
+    const bool first = veil < 0.0f;
+    if (first) veil = target;
+    if (first || approach (veil, target, 0.25f))
+    {
+        // module coupé : ses réglages s'estompent (pas de voile rectangulaire, qui redessinerait une carte)
+        for (auto* child : getChildren())
+            if (child != bypassLed.get())
+                child->setAlpha (1.0f - 0.62f * veil);
+        repaint();
+    }
 }
 
 } // namespace onirique::ui

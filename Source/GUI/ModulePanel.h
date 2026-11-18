@@ -24,8 +24,8 @@ struct RowSpec
 };
 
 /** Un module sur la façade, à plat comme sur VERB : le bouton power et le nom, un filet jusqu'au bout du module,
-    puis ses potards et ses compléments (meters, sélecteurs, courbe). Module coupé = voile nuit en fondu sur son
-    contenu (le titre et le power restent nets). */
+    puis ses potards et ses compléments (meters, sélecteurs, courbe). Module coupé : ses réglages s'estompent en
+    fondu (le titre et le power restent nets). */
 class ModulePanel : public juce::Component,
                     private juce::Timer
 {
@@ -35,7 +35,6 @@ public:
     ~ModulePanel() override;
 
     void paint (juce::Graphics&) override;
-    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
     /** Ajoute un composant (meter, courbe, sélecteur…) aux coordonnées de la façade, relatives au module. */
@@ -43,6 +42,7 @@ public:
     ComponentType& addExtra (std::unique_ptr<ComponentType> comp, float x, float y, float w, float h)
     {
         auto& ref = *comp;
+        comp->setAlpha (1.0f - 0.62f * juce::jmax (0.0f, veil));   // estompé d'emblée si le module est coupé
         addAndMakeVisible (*comp);
         extras.push_back ({ std::move (comp), x, y, w, h });
         resized();
@@ -68,7 +68,7 @@ private:
     std::unique_ptr<PowerSwitch> bypassLed;
     std::unique_ptr<juce::ButtonParameterAttachment> bypassAttachment;
     std::atomic<float>* bypassRaw = nullptr;
-    float veil = -1.0f;   // 0 = module actif, 1 = module coupé (voile animé)
+    float veil = -1.0f;   // 0 = module actif, 1 = module coupé (fondu animé)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModulePanel)
 };
